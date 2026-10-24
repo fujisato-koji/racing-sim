@@ -38,6 +38,7 @@ export class Hud {
     this.root.innerHTML = `
       <div class="hud-info"></div>
       <canvas class="hud-map" width="440" height="440"></canvas>
+      <div class="hud-credit"></div>
       <div class="hud-message"></div>
       <div class="hud-notice" style="display:none"></div>
       <div class="hud-help">${isTouch
@@ -113,6 +114,8 @@ export class Hud {
       for (const r of c.def.ramps ?? []) { const [x, y] = to(r.x, r.z); g.fillRect(x - 4, y - 4, 8, 8); }
     }
     this.mapBase = base;
+    // 実在のコースは OpenStreetMap の出典を出す（ODbL）
+    (this.root.querySelector('.hud-credit') as HTMLElement).textContent = c.def.credit ? '© OpenStreetMap contributors' : '';
     this.help.style.opacity = '1';
     this.helpTime = 0;
   }

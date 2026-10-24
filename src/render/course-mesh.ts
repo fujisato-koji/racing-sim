@@ -244,8 +244,40 @@ export class CourseMesh {
       this.group.add(m);
     }
 
+    // 街の建物：壁と、階ごとに帯の窓。全部を 2 つの形にまとめて描く
+    {
+      const walls: THREE.BufferGeometry[] = [], glass: THREE.BufferGeometry[] = [];
+      const m4 = new THREE.Matrix4();
+      for (const b of c.buildings) {
+        if (b.kind !== 'block') continue;
+        const h = b.height ?? 12, d = b.depth ?? 14, l = b.length;
+        m4.makeRotationY(b.yaw).setPosition(b.x, b.y, b.z);
+        walls.push(paint(new THREE.BoxGeometry(d, h, l).translate(0, h / 2, 0), b.color ?? 0xb8b0a4).applyMatrix4(m4));
+        walls.push(paint(new THREE.BoxGeometry(d + 0.3, 0.6, l + 0.3).translate(0, h + 0.3, 0), 0x6d6f73).applyMatrix4(m4));
+        const floors = Math.floor((h - 1.5) / 3.4);
+        for (let k = 0; k < floors; k++) glass.push(new THREE.BoxGeometry(d + 0.08, 1.2, l + 0.08).translate(0, 2.3 + k * 3.4, 0).applyMatrix4(m4));
+      }
+      if (walls.length > 0) {
+        const w = new THREE.Mesh(track(mergeGeometries(walls)!), vcol);
+        w.castShadow = true; w.receiveShadow = true;
+        this.group.add(w);
+        const gm = track(new THREE.MeshStandardMaterial({ color: 0x3f4b58, roughness: 0.25, metalness: 0.5 }));
+        this.group.add(new THREE.Mesh(track(mergeGeometries(glass)!), gm));
+      }
+    }
+
+    // 橋の柱
+    if (c.pillars.length > 0) {
+      const m = new THREE.InstancedMesh(track(new THREE.BoxGeometry(1.4, 1, 1.4).translate(0, 0.5, 0)), track(new THREE.MeshStandardMaterial({ color: 0x9a9894, roughness: 0.9 })), c.pillars.length);
+      const m4 = new THREE.Matrix4();
+      c.pillars.forEach(([x, top, z, bottom], i) => m.setMatrixAt(i, m4.makeScale(1, Math.max(0.5, top - bottom), 1).setPosition(x, bottom, z)));
+      m.castShadow = true; m.receiveShadow = true;
+      this.group.add(m);
+    }
+
     // 観客席とピット
     for (const b of c.buildings) {
+      if (b.kind === 'block') continue;
       const g = track(b.kind === 'stand' ? standGeometry(b.length) : pitGeometry(b.length));
       const m = new THREE.Mesh(g, vcol);
       // 長さの向きを走る向きに。観客席は外向きに段が上がる

@@ -2,7 +2,7 @@
 // 画面に依らないので Node でも動く。
 import { AiDriver } from '../sim/ai';
 import type { CourseData, CourseDef } from '../sim/course';
-import { buildCourse, populate, yawFromDir } from '../sim/course';
+import { buildCourse, pathUp, populate, yawFromDir } from '../sim/course';
 import type { CarParams } from '../sim/params';
 import { cloneParams } from '../sim/params';
 import type { Racer } from '../sim/race';
@@ -48,7 +48,7 @@ export class Session {
     const order = cars.length > 1 && cfg.player ? [...cars.slice(1), cars[0]] : cars;
     for (const c of order) {
       const g = grid[Math.min(slot++, grid.length - 1)];
-      const v = new Vehicle(this.pw, cloneParams(c.p), { x: g.x, y: g.y, z: g.z, yaw: g.yaw });
+      const v = new Vehicle(this.pw, cloneParams(c.p), { x: g.x, y: g.y, z: g.z, yaw: g.yaw, up: g.up });
       this.pw.vehicles.push(v);
       const lane = ((this.racers.length % 3) - 1) * 1.5;
       const ai = !c.isPlayer && hasTrack ? new AiDriver(this.course, v, 0.86 + ((this.racers.length * 37) % 10) / 100, lane) : null;
@@ -130,7 +130,7 @@ export class Session {
       }
       const k = ((i % n) + n) % n;
       const p = path[k];
-      v.place(p.x, p.y, p.z, yawFromDir(p.tx, p.tz));
+      v.place(p.x, p.y, p.z, yawFromDir(p.tx, p.tz), pathUp(path, k));
       if (r.ai) { r.ai.idx = k; r.ai.stuckTime = 0; }
     }
     r.upsideDown = 0;

@@ -148,6 +148,12 @@ export function buildSettingsForm(container: HTMLElement, p: CarParams, onChange
   }
 }
 
+/** 100 km/h と 200 km/h でのダウンフォース（½ρv²A(Cl前 + Cl後)） */
+function downforce(p: CarParams) {
+  const f = (kmh: number) => 0.5 * 1.225 * (kmh / 3.6) ** 2 * p.aero.frontalArea * (p.aero.clFront + p.aero.clRear) / 9.81;
+  return `100 km/h で ${f(100).toFixed(0)} kgf、200 km/h で ${f(200).toFixed(0)} kgf（速さの 2 乗に比例）`;
+}
+
 /** 入力値から出る目安と注意 */
 export function renderDerived(el: HTMLElement, p: CarParams) {
   const d = computeDerived(p);
@@ -160,6 +166,7 @@ export function renderDerived(el: HTMLElement, p: CarParams) {
       <tr><th>最高速の見込み</th><td>${d.topSpeedKmh.toFixed(0)} km/h</td></tr>
       <tr><th>サスの固有振動数</th><td>前 ${d.freqFront.toFixed(2)} Hz、後 ${d.freqRear.toFixed(2)} Hz</td></tr>
       <tr><th>静止時の沈み込み</th><td>前 ${(d.sagFront * 1000).toFixed(0)} mm、後 ${(d.sagRear * 1000).toFixed(0)} mm</td></tr>
+      <tr><th>ダウンフォース</th><td>${downforce(p)}</td></tr>
       <tr><th>ハンドルの回転</th><td>端から端まで ${d.lockToLock.toFixed(1)} 回転</td></tr>
       <tr><th>横転のしにくさ</th><td>${d.stabilityFactor.toFixed(2)}（トレッド ÷ 重心高の 2 倍。1.1 未満は横転しやすい）</td></tr>
     </table>

@@ -1,6 +1,6 @@
 // 車両。車体は物理エンジンの剛体で、サス、タイヤ、駆動系、空力の力をここで計算して加える。
 // 車体座標は重心が原点、右 +x、上 +y、前 -z。
-import { Quaternion, Vector3 } from 'three';
+import { Matrix4, Quaternion, Vector3 } from 'three';
 import type RAPIER from '@dimforge/rapier3d-compat';
 import type { CarGeometry, CarParams } from './params';
 import { DEG, G, RHO, carGeometry, drivenAxles, engineTorque, peakValues } from './params';
@@ -127,7 +127,7 @@ export class Vehicle {
   private readonly cornerMass: number[];
   private readonly brakeCap = [0, 0, 0, 0];
 
-  constructor(readonly pw: PhysicsWorld, readonly p: CarParams, spawn: { x: number; y: number; z: number; yaw: number }) {
+  constructor(readonly pw: PhysicsWorld, readonly p: CarParams, spawn: { x: number; y: number; z: number; yaw: number; up?: [number, number, number] }) {
     const R = pw.R;
     const g = (this.geom = carGeometry(p));
     const bd = p.body;
@@ -189,15 +189,23 @@ export class Vehicle {
     this.cdSide = 1.0 * bd.length * (bd.height - bd.groundClearance) * 0.85;
     this.cdTop = 1.1 * bd.length * bd.width * 0.8;
 
-    this.place(spawn.x, spawn.y, spawn.z, spawn.yaw);
+    this.place(spawn.x, spawn.y, spawn.z, spawn.yaw, spawn.up);
   }
 
-  /** 地面の点（x, y, z）に、向き yaw（0 で -z 向き、正で左回り）で置き直す */
-  place(x: number, y: number, z: number, yaw: number) {
+  /**
+   * 地面の点（x, y, z）に、向き yaw（0 で -z 向き、正で左回り）で置き直す。
+   * up は路面の上向き（坂やバンクで傾いているときに渡す。車体を路面に沿わせる）
+   */
+  place(x: number, y: number, z: number, yaw: number, up?: [number, number, number]) {
     // 重心の高さに置けば、各輪はちょうど静的に縮んだ位置で接地する
     const h = -this.geom.groundY + 0.02;
-    _q1.setFromAxisAngle(Y, yaw);
-    this.body.setTranslation({ x, y: y + h, z }, true);
+    const u = new Vector3(...(up ?? [0, 1, 0])).normalize();
+    const f0 = new Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
+    const f = f0.addScaledVector(u, -f0.dot(u)).normalize();
+    const r = new Vector3().copy(f).cross(u).normalize();
+    const back = new Vector3().copy(f).negate();
+    _q1.setFromRotationMatrix(new Matrix4().makeBasis(r, u, back));
+    this.body.setTranslation({ x: x + u.x * h, y: y + u.y * h, z: z + u.z * h }, true);
     this.body.setRotation({ x: _q1.x, y: _q1.y, z: _q1.z, w: _q1.w }, true);
     this.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
     this.body.setAngvel({ x: 0, y: 0, z: 0 }, true);
@@ -374,9 +382,10 @@ export class Vehicle {
       if (!w.contact || w.fz <= 0) {
         w.u = 0; w.v = 0; w.kappa = 0; w.tanAlpha = 0; w.fx = 0; w.fy = 0; w.slipSpeed = 0;
         this.brakeCap[k] = 0;
-        // 浮いた駆動輪の空転もトラクションコントロールで抑える（着地で後ろが流れないように）
+        // 車全体が浮いているときは、駆動輪の空転もトラクションコントロールで抑える（着地で後ろが流れないように）。
+        // 片輪だけ浮いているときは抑えない（接地している車輪まで駆動が絞られて、坂やねじれた路面で動けなくなる）
         const drivenAir = w.front ? drivenAxles(p.drive.layout).front : drivenAxles(p.drive.layout).rear;
-        if (drivenAir) {
+        if (drivenAir && this.airborne) {
           const kpS = p.tire.peakSlip * w.surface.slipScale;
           maxSpin = Math.max(maxSpin, (omega * w.radius - vf) / Math.max(Math.abs(vf), 3) / kpS);
         }
@@ -434,11 +443,15 @@ export class Vehicle {
       else w.absFactor = Math.min(1, w.absFactor + 6 * dt);
       const driven = w.front ? drivenAxles(p.drive.layout).front : drivenAxles(p.drive.layout).rear;
       if (driven) {
-        // 前後の空転に加えて、前後と横を合わせた滑りが最大摩擦を超えたら、駆動を絞る（後ろが流れるのを防ぐ）
-        const sx = (w.kappa * dir) / kpS;
+        // 前後の空転に加えて、前後と横を合わせた滑りが最大摩擦を超えたら、駆動を絞る（後ろが流れるのを防ぐ）。
+        // 駆動の向きはギアで決める（坂で少しずり下がっていても、前進のギアで前へ空転していれば空転）
+        const sx = (w.kappa * (this.gear < 0 ? -1 : 1)) / kpS;
         const sy = Math.atan(w.tanAlpha) / (p.tire.peakAngleDeg * DEG * w.surface.slipScale);
-        maxSpin = Math.max(maxSpin, sx);
-        if (sx > 0.15) maxSpin = Math.max(maxSpin, (1.3 * Math.hypot(sx, sy)) / 1.05);
+        // 止まりかけでは少しの空転でも滑り率が大きく出るので、空転の速さが 2 m/s を超えるまでは絞らない
+        const spinVel = (omega * R - vx) * (this.gear < 0 ? -1 : 1);
+        maxSpin = Math.max(maxSpin, avx > 6 ? sx : (1.3 * spinVel) / Math.max(2, 1.3 * kpS * avx));
+        // 止まりかけでは横のねじれが残ったままになるので、合わせた滑りは動いているときだけ見る
+        if (sx > 0.15 && avx > 2) maxSpin = Math.max(maxSpin, (1.3 * Math.hypot(sx, sy)) / 1.05);
         // エンジンブレーキで滑っている
         if (sx < -0.15 && Math.hypot(sx, sy) > 1.05) dragSlip = true;
       }
@@ -580,20 +593,24 @@ export class Vehicle {
     const g = ratios[this.gear - 1];
     const rpmLock = Math.abs(this.dt.w[PROP]) * g * RPM;
     const red = p.engine.redlineRpm, idle = p.engine.idleRpm;
+    // 地面に対する速さから出した回転数（駆動輪が空転していても下げられるように）
+    const r = drivenAxles(p.drive.layout).rear ? p.rear.tireRadius : p.front.tireRadius;
+    const rpmGround = Math.min(rpmLock, ((Math.abs(this.speed) / r) * g * p.gearbox.finalDrive * RPM));
     if (this.gear < ratios.length) {
       const g2 = ratios[this.gear];
       let up = rpmLock > red * 0.97;
       if (!up && throttle > 0.85 && rpmLock > this.peakTorqueRpm) {
         up = engineTorque(p, (rpmLock * g2) / g) * g2 >= engineTorque(p, rpmLock) * g;
       }
-      if (!up && throttle <= 0.85) up = rpmLock > lerp(idle + 1600, red * 0.9, throttle);
+      // 踏み込みが浅いときは早めに上げる。ブレーキ中は上げない（下げと行き来しないように）
+      if (!up && throttle <= 0.85 && brake < 0.05) up = rpmLock > lerp(idle + 1600, red * 0.9, throttle);
       if (up) { this.startShift(this.gear + 1); return; }
     }
     if (this.gear > 1) {
       const gl = ratios[this.gear - 2];
       let downAt = lerp(idle + 700, this.peakTorqueRpm, throttle);
       if (brake > 0.3) downAt = Math.max(downAt, red * 0.5);
-      if (rpmLock < downAt && (rpmLock * gl) / g < red * 0.9) this.startShift(this.gear - 1);
+      if (rpmGround < downAt && (rpmGround * gl) / g < red * 0.9) this.startShift(this.gear - 1);
     }
   }
 

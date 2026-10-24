@@ -1,5 +1,6 @@
 // コースのプリセット
 import type { CourseDef } from './course';
+import { REAL_COURSES } from './tracks';
 
 const deg = (a: number) => (a * Math.PI) / 180;
 const rampHeight = (length: number, angleDeg: number) => length * Math.tan(deg(angleDeg));
@@ -8,7 +9,7 @@ const slalom: [number, number][] = Array.from({ length: 11 }, (_, i) => [-90, 90
 const coneWall: [number, number][] = Array.from({ length: 15 }, (_, i) => [-14 + i * 2, -30]);
 const tireLine = Array.from({ length: 54 }, (_, i) => ({ x: 100, z: -20 + i * 0.75, count: 2 }));
 
-export const COURSES: CourseDef[] = [
+const ORIGINAL: CourseDef[] = [
   {
     id: 'testfield',
     name: '試験場',
@@ -93,3 +94,5 @@ export const COURSES: CourseDef[] = [
     laps: 2,
   },
 ];
+
+export const COURSES: CourseDef[] = [...ORIGINAL.map((c) => ({ ...c, category: 'original' as const })), ...REAL_COURSES];

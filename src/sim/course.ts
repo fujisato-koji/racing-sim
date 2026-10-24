@@ -21,7 +21,15 @@ export interface TrackDef {
   barriers?: { from: number; to: number; side: 'left' | 'right' | 'outside' | 'both'; kind: 'wall' | 'tires' }[];
   /** 路上のコーン [割合, 中心からの横位置 m（左が正）] */
   cones?: [number, number][];
+  /** オーバルのバンク角 [度]（曲がりと直線） */
+  banking?: { turns: number; straights: number };
+  /** 制御点ごとの橋の印（1 が橋） */
+  bridges?: number[];
+  /** 壁と景色を自動で置く（実在のコース） */
+  auto?: 'circuit' | 'street' | 'oval';
 }
+
+export type CourseCategory = 'original' | 'international' | 'technical' | 'street' | 'oval';
 
 export interface CourseDef {
   id: string;
@@ -41,6 +49,14 @@ export interface CourseDef {
   walls?: { x: number; z: number; yaw: number; length: number }[];
   start?: { x: number; z: number; yaw: number };
   laps: number;
+  category?: CourseCategory;
+  country?: string;
+  /** 公式の 1 周の長さ [m] */
+  lengthOfficial?: number;
+  /** 地形の起伏をコースの標高からなめらかに作る（実在のコース） */
+  terrainFromTrack?: boolean;
+  /** データの出どころ（画面に出す） */
+  credit?: string;
 }
 
 export interface PathSample {
@@ -56,6 +72,10 @@ export interface PathSample {
   lz: number;
   /** 曲率 [1/m]（左に曲がるとき正） */
   k: number;
+  /** バンク角 [rad]（正なら右の端が高い） */
+  bank: number;
+  /** 橋の上 */
+  bridge: boolean;
   surface: SurfaceId;
 }
 
@@ -80,11 +100,13 @@ export interface CourseData {
   kerbs: { vertices: Float32Array; indices: Uint32Array; colors: Float32Array } | null;
   /** 木 [x, y, z, 大きさ] */
   trees: [number, number, number, number][];
-  /** 観客席とピットの建物 */
-  buildings: { kind: 'stand' | 'pit'; x: number; y: number; z: number; yaw: number; length: number }[];
+  /** 観客席とピットの建物、街の建物 */
+  buildings: { kind: 'stand' | 'pit' | 'block'; x: number; y: number; z: number; yaw: number; length: number; depth?: number; height?: number; color?: number }[];
+  /** 橋の柱 [x, 上の高さ, z, 下の高さ] */
+  pillars: [number, number, number, number][];
   cones: [number, number, number][];
   tireStacks: { x: number; y: number; z: number; count: number }[];
-  grid: { x: number; y: number; z: number; yaw: number }[];
+  grid: { x: number; y: number; z: number; yaw: number; up?: [number, number, number] }[];
   heightAt: (x: number, z: number) => number;
 }
 
@@ -119,19 +141,45 @@ function hills(def: CourseDef, x: number, z: number) {
 
 const smooth = (t: number) => { const c = Math.max(0, Math.min(1, t)); return c * c * (3 - 2 * c); };
 
-/** [割合, 値] の並びを周回として cos でつなぐ */
+/**
+ * [割合, 値] の並びを周回としてなめらかにつなぐ（区分 3 次の単調補間）。
+ * 山と谷の点では傾きを 0 にし（手で置いた頂上は平らなまま）、上りや下りが続く点では傾きを前後から取る。
+ * どの点でも傾きを 0 にするつなぎ方（cos）だと、細かく点を置いた実在のコースで坂が階段のようになり、車が跳ねる
+ */
 function cyclicKeys(keys: [number, number][], f: number) {
   const m = keys.length;
-  for (let j = 0; j < m; j++) {
-    const a = keys[j], b = keys[(j + 1) % m];
-    const af = a[0], bf = j + 1 < m ? b[0] : b[0] + 1;
-    const ff = f < keys[0][0] ? f + 1 : f;
-    if (ff >= af && ff < bf) {
-      const c = (1 - Math.cos((Math.PI * (ff - af)) / (bf - af))) / 2;
-      return a[1] + (b[1] - a[1]) * c;
-    }
-  }
-  return keys[0][1];
+  if (m === 1) return keys[0][1];
+  // j 番目の点（周回を越えた番号は 1 周ぶんずらす）
+  const fx = (j: number) => keys[((j % m) + m) % m][0] + Math.floor(j / m);
+  const vy = (j: number) => keys[((j % m) + m) % m][1];
+  const slope = (j: number) => {
+    const h0 = fx(j) - fx(j - 1), h1 = fx(j + 1) - fx(j);
+    const s0 = (vy(j) - vy(j - 1)) / Math.max(1e-9, h0), s1 = (vy(j + 1) - vy(j)) / Math.max(1e-9, h1);
+    if (s0 * s1 <= 0) return 0;
+    const w0 = 2 * h1 + h0, w1 = h1 + 2 * h0;
+    return (w0 + w1) / (w0 / s0 + w1 / s1);
+  };
+  let j = m - 1;
+  for (let k = 0; k < m; k++) if (keys[k][0] <= f) j = k;
+  const ff = f < keys[0][0] ? f + 1 : f;
+  const a = j === m - 1 && f < keys[0][0] ? fx(-1) + 1 : fx(j);
+  const h = fx(j + 1) - fx(j);
+  const t = Math.max(0, Math.min(1, (ff - a) / Math.max(1e-9, h)));
+  const t2 = t * t, t3 = t2 * t;
+  return (2 * t3 - 3 * t2 + 1) * vy(j) + (t3 - 2 * t2 + t) * h * slope(j) + (-2 * t3 + 3 * t2) * vy(j + 1) + (t3 - t2) * h * slope(j + 1);
+}
+
+/** 経路の点 i での路面の上向き（坂とバンクに沿う） */
+export function pathUp(path: PathSample[], i: number): [number, number, number] {
+  const n = path.length;
+  const a = path[(i - 2 + n) % n], b = path[(i + 2) % n], p = path[i];
+  const ds = Math.hypot(b.x - a.x, b.z - a.z) || 1;
+  const f = [p.tx, (b.y - a.y) / ds, p.tz];
+  const l = [p.lx, -Math.tan(p.bank), p.lz];
+  // 上 = 前 × 左
+  const u = [f[1] * l[2] - f[2] * l[1], f[2] * l[0] - f[0] * l[2], f[0] * l[1] - f[1] * l[0]];
+  const m = Math.hypot(u[0], u[1], u[2]) || 1;
+  return [u[0] / m, u[1] / m, u[2] / m];
 }
 
 export const yawFromDir = (tx: number, tz: number) => Math.atan2(-tx, -tz);
@@ -146,7 +194,7 @@ function buildPath(def: CourseDef, t: TrackDef): { path: PathSample[]; length: n
   const n = Math.max(64, Math.round(length));
   const pts = curve.getSpacedPoints(n).slice(0, n);
   const ds = length / n;
-  const path: PathSample[] = pts.map((p, i) => ({ s: i * ds, x: p.x, y: 0, z: p.z, tx: 0, tz: 0, lx: 0, lz: 0, k: 0, surface: t.surface }));
+  const path: PathSample[] = pts.map((p, i) => ({ s: i * ds, x: p.x, y: 0, z: p.z, tx: 0, tz: 0, lx: 0, lz: 0, k: 0, bank: 0, bridge: false, surface: t.surface }));
   for (let i = 0; i < n; i++) {
     const a = path[(i - 1 + n) % n], b = path[(i + 1) % n];
     let tx = b.x - a.x, tz = b.z - a.z;
@@ -163,6 +211,34 @@ function buildPath(def: CourseDef, t: TrackDef): { path: PathSample[]; length: n
     while (dh < -Math.PI) dh += 2 * Math.PI;
     // atan2(tx, tz) は左に曲がると増える
     path[i].k = dh / (2 * ds);
+  }
+  // 曲率は前後 5 m でならす（地図の点のがたつきを AI の速さに持ち込まない）
+  {
+    const raw = path.map((p) => p.k), w = Math.max(1, Math.round(5 / ds));
+    for (let i = 0; i < n; i++) {
+      let sum = 0;
+      for (let j = -w; j <= w; j++) sum += raw[(i + j + n) % n];
+      path[i].k = sum / (2 * w + 1);
+    }
+  }
+  // バンク：曲がりのきつさに合わせて傾け、前後 30 m でならす。外側（主に曲がる向きの反対）が高い
+  if (t.banking) {
+    const meanK = path.reduce((a, p) => a + p.k, 0) / n;
+    const sign = meanK >= 0 ? 1 : -1;
+    const raw = path.map((p) => {
+      const tt = smooth((Math.abs(p.k) - 1 / 2000) / (1 / 350 - 1 / 2000));
+      return sign * ((t.banking!.straights + (t.banking!.turns - t.banking!.straights) * tt) * Math.PI) / 180;
+    });
+    const w = Math.max(1, Math.round(30 / ds));
+    for (let i = 0; i < n; i++) {
+      let sum = 0;
+      for (let j = -w; j <= w; j++) sum += raw[(i + j + n) % n];
+      path[i].bank = sum / (2 * w + 1);
+    }
+  }
+  if (t.bridges) {
+    const m = t.bridges.length;
+    for (let i = 0; i < n; i++) path[i].bridge = t.bridges[Math.floor((i / n) * m) % m] === 1;
   }
   // 標高：地形の起伏を経路に沿って均し、指定の標高とジャンプを足す
   const base = path.map((p) => hills(def, p.x, p.z));
@@ -237,6 +313,29 @@ class PathIndex {
     }
     return { i: bi, u: bu, d: best, side: bside };
   }
+
+  /** 経路の別の部分（60 m 以上離れた区間）ごとの最寄り。立体交差で両方の道を見る */
+  branches(x: number, z: number, reach: number): { i: number; u: number; d: number; side: number }[] {
+    const list = this.cells.get(Math.floor(x / this.size) * 100003 + Math.floor(z / this.size));
+    if (!list) return [];
+    const n = this.path.length;
+    const cand: { i: number; u: number; d: number; side: number }[] = [];
+    for (const i of list) {
+      const a = this.path[i], b = this.path[(i + 1) % n];
+      const ex = b.x - a.x, ez = b.z - a.z;
+      const l2 = ex * ex + ez * ez || 1;
+      const u = Math.max(0, Math.min(1, ((x - a.x) * ex + (z - a.z) * ez) / l2));
+      const px = a.x + ex * u, pz = a.z + ez * u;
+      const d = Math.hypot(x - px, z - pz);
+      if (d <= reach) cand.push({ i, u, d, side: (x - px) * a.lx + (z - pz) * a.lz });
+    }
+    cand.sort((p, q) => p.d - q.d);
+    const out: typeof cand = [];
+    for (const c of cand) {
+      if (out.every((o) => { const di = Math.abs(o.i - c.i); return Math.min(di, n - di) > 60; })) out.push(c);
+    }
+    return out;
+  }
 }
 
 // ---------------------------------------------------------------- 組み立て
@@ -253,15 +352,49 @@ export function buildCourse(def: CourseDef): CourseData {
   // 範囲
   let x0: number, z0: number, x1: number, z1: number;
   if (t) {
-    x0 = Math.min(...path.map((p) => p.x)) - 150; x1 = Math.max(...path.map((p) => p.x)) + 150;
-    z0 = Math.min(...path.map((p) => p.z)) - 150; z1 = Math.max(...path.map((p) => p.z)) + 150;
+    const m = def.terrainFromTrack ? 120 : 150;
+    x0 = Math.min(...path.map((p) => p.x)) - m; x1 = Math.max(...path.map((p) => p.x)) + m;
+    z0 = Math.min(...path.map((p) => p.z)) - m; z1 = Math.max(...path.map((p) => p.z)) + m;
   } else {
     const h = (def.size ?? 400) / 2;
     x0 = -h; z0 = -h; x1 = h; z1 = h;
   }
-  const cell = def.cell;
+  // 大きなコースでも頂点が 18 万を超えないように
+  const cell = Math.max(def.cell, Math.min(6, Math.sqrt(((x1 - x0) * (z1 - z0)) / 180000)));
   const nx = Math.ceil((x1 - x0) / cell), nz = Math.ceil((z1 - z0) / cell);
   x1 = x0 + nx * cell; z1 = z0 + nz * cell;
+
+  // 実在のコース：周りの地形を、コースの標高から距離の重みでなめらかに作る（40 m の格子）
+  let field: ((x: number, z: number) => number) | null = null;
+  if (t && def.terrainFromTrack) {
+    const fc = 40, fx = Math.ceil((x1 - x0) / fc) + 1, fz = Math.ceil((z1 - z0) / fc) + 1;
+    const grid = new Float32Array(fx * fz);
+    const samples = path.filter((_, i) => i % 8 === 0);
+    for (let j = 0; j < fz; j++) for (let i = 0; i < fx; i++) {
+      const x = x0 + i * fc, z = z0 + j * fc;
+      let sw = 0, sh = 0;
+      for (const p of samples) {
+        const d2 = (p.x - x) ** 2 + (p.z - z) ** 2;
+        const w = 1 / (d2 + 900);
+        sw += w; sh += w * p.y;
+      }
+      grid[j * fx + i] = sh / sw;
+    }
+    field = (x: number, z: number) => {
+      const gi = Math.max(0, Math.min(fx - 1.001, (x - x0) / fc)), gj = Math.max(0, Math.min(fz - 1.001, (z - z0) / fc));
+      const i = Math.floor(gi), j = Math.floor(gj), u = gi - i, v = gj - j;
+      const g = (a: number, b: number) => grid[b * fx + a];
+      return (g(i, j) * (1 - u) + g(i + 1, j) * u) * (1 - v) + (g(i, j + 1) * (1 - u) + g(i + 1, j + 1) * u) * v - 0.3;
+    };
+  }
+  const ground = (x: number, z: number) => (field ? field(x, z) : hills(def, x, z));
+  // 路面の高さ（横の位置 side で。バンクがあれば傾く）
+  const roadAt = (i: number, u: number, side: number) => {
+    const e = width / 2;
+    const b = path[i].bank + (path[(i + 1) % n].bank - path[i].bank) * u;
+    return roadY(i, u) - Math.max(-e, Math.min(e, side)) * Math.tan(b);
+  };
+  const sink = def.terrainFromTrack ? 0.6 : 0.35;
 
   const rocksDefs = def.rockFields ?? [];
   const surfaceAt = (x: number, z: number): SurfaceId => {
@@ -275,15 +408,23 @@ export function buildCourse(def: CourseDef): CourseData {
   };
 
   const terrainHeight = (x: number, z: number) => {
-    const hl = hills(def, x, z);
+    const hl = ground(x, z);
     if (!index) return hl;
-    const q = index.nearest(x, z);
-    if (!q) return hl;
-    const ry = roadY(q.i, q.u);
+    const qs = index.branches(x, z, reach);
+    if (qs.length === 0) return hl;
     const e = width / 2;
-    if (q.d < e + 1.5) return ry - 0.35;
-    if (q.d < e + SHOULDER) return ry - 0.35 + (0.23 * (q.d - e - 1.5)) / (SHOULDER - 1.5);
-    return ry - 0.12 + (hl - (ry - 0.12)) * smooth((q.d - e - SHOULDER) / BLEND);
+    // 立体交差では低い方の道に合わせる（上の道は橋になる）
+    let h = Infinity;
+    for (const q of qs) {
+      const ry = roadAt(q.i, q.u, q.side);
+      let v: number;
+      if (q.d < e + 1.5) v = ry - sink;
+      else if (q.d < e + SHOULDER) v = ry - sink + ((sink - 0.12) * (q.d - e - 1.5)) / (SHOULDER - 1.5);
+      else v = ry - 0.12 + (hl - (ry - 0.12)) * smooth((q.d - e - SHOULDER) / BLEND);
+      if (path[q.i].bridge && q.d < e + SHOULDER + 4) continue;
+      h = Math.min(h, v);
+    }
+    return isFinite(h) ? h : hl;
   };
 
   // 地形
@@ -320,11 +461,13 @@ export function buildCourse(def: CourseDef): CourseData {
     const e = width / 2;
     for (let i = 0; i < n; i++) {
       const p = path[i];
-      rv.set([p.x + p.lx * e, p.y, p.z + p.lz * e, p.x - p.lx * e, p.y, p.z - p.lz * e], i * 6);
+      const tb = Math.tan(p.bank);
+      const yl = p.y - e * tb, yr = p.y + e * tb;
+      rv.set([p.x + p.lx * e, yl, p.z + p.lz * e, p.x - p.lx * e, yr, p.z - p.lz * e], i * 6);
       uv.set([0, p.s / 8, 1, p.s / 8], i * 4);
       const o = e + SHOULDER;
-      sv.set([p.x + p.lx * o, p.y - 0.12, p.z + p.lz * o, p.x + p.lx * e, p.y, p.z + p.lz * e,
-        p.x - p.lx * e, p.y, p.z - p.lz * e, p.x - p.lx * o, p.y - 0.12, p.z - p.lz * o], i * 12);
+      sv.set([p.x + p.lx * o, yl - SHOULDER * tb - 0.12, p.z + p.lz * o, p.x + p.lx * e, yl, p.z + p.lz * e,
+        p.x - p.lx * e, yr, p.z - p.lz * e, p.x - p.lx * o, yr + SHOULDER * tb - 0.12, p.z - p.lz * o], i * 12);
     }
     const roadBy = new Map<SurfaceId, number[]>();
     const si: number[] = [];
@@ -345,7 +488,7 @@ export function buildCourse(def: CourseDef): CourseData {
   const heightAt = (x: number, z: number) => {
     if (index) {
       const q = index.nearest(x, z);
-      if (q && q.d <= width / 2) return roadY(q.i, q.u);
+      if (q && q.d <= width / 2) return roadAt(q.i, q.u, q.side);
     }
     const fi = (x - x0) / cell, fj = (z - z0) / cell;
     const i = Math.max(0, Math.min(nx - 1, Math.floor(fi))), j = Math.max(0, Math.min(nz - 1, Math.floor(fj)));
@@ -421,11 +564,40 @@ export function buildCourse(def: CourseDef): CourseData {
       const x = p.x + p.lx * off, z = p.z + p.lz * off;
       cones.push([x, p.y, z]);
     }
+    // 実在のコース：サーキットは退避帯の外、市街地は道路のすぐ脇、オーバルは外側に壁を並べる
+    if (t.auto && index) {
+      const e = width / 2, step = 6;
+      const meanK = path.reduce((a, q) => a + q.k, 0) / n;
+      const off = t.auto === 'street' ? e + 0.7 : t.auto === 'oval' ? e + 0.6 : e + SHOULDER + 7;
+      const sides = t.auto === 'oval' ? [meanK >= 0 ? -1 : 1] : [1, -1];
+      for (let s0 = 0; s0 < length;) {
+        const i0 = Math.floor(s0 / (length / n)) % n;
+        const p = path[i0];
+        // 曲がりがきついところは壁を短く刻む（まっすぐな箱が内側で路面にはみ出さないように）
+        const seg = Math.max(1.5, Math.min(step, 0.35 / Math.max(1e-6, Math.abs(p.k))));
+        for (const side of sides) {
+          const x = p.x + p.lx * off * side, z = p.z + p.lz * off * side;
+          // 壁の中心と両端のどれかが、ほかの区間（立体交差、ヘアピンの反対側）の路面に近いところには置かない
+          let ok = true;
+          for (const a of [0, -0.5, 0.5]) {
+            const near = index.nearest(x + p.tx * seg * a, z + p.tz * seg * a);
+            if (near && near.d < off - 0.4) { ok = false; break; }
+          }
+          if (!ok) continue;
+          const others = index.branches(x, z, e + 8).filter((q) => { const di = Math.abs(q.i - i0); return Math.min(di, n - di) > 60; });
+          if (others.length > 0) continue;
+          const tb = Math.tan(p.bank);
+          const base = t.auto === 'circuit' ? heightAt(x, z) : side > 0 ? p.y - e * tb : p.y + e * tb;
+          walls.push({ cx: x, cy: base + 0.45, cz: z, half: [0.3, 0.5, seg / 2 + 0.1], yaw: yawFromDir(p.tx, p.tz) });
+        }
+        s0 += seg;
+      }
+    }
   }
 
   // 縁石：曲がりのきつい区間の両端に、路面の端から外へ 1.1 m の帯を置く（内側が少し高い）
   let kerbs: CourseData['kerbs'] = null;
-  if (t && t.surface === 'asphalt') {
+  if (t && t.surface === 'asphalt' && !t.banking) {
     const kv: number[] = [], kc: number[] = [], ki: number[] = [];
     const e = width / 2;
     const sharp = path.map((p) => Math.abs(p.k) > 1 / 140);
@@ -479,8 +651,59 @@ export function buildCourse(def: CourseDef): CourseData {
     const p0 = path[0];
     const yaw = yawFromDir(p0.tx, p0.tz);
     const off = width / 2 + SHOULDER + 9;
-    buildings.push({ kind: 'stand', x: p0.x + p0.lx * off, y: p0.y, z: p0.z + p0.lz * off, yaw, length: 80 });
-    buildings.push({ kind: 'pit', x: p0.x - p0.lx * (off + 2), y: p0.y, z: p0.z - p0.lz * (off + 2), yaw, length: 90 });
+    if (t.auto !== 'oval') {
+      buildings.push({ kind: 'stand', x: p0.x + p0.lx * off, y: p0.y, z: p0.z + p0.lz * off, yaw, length: 80 });
+      buildings.push({ kind: 'pit', x: p0.x - p0.lx * (off + 2), y: p0.y, z: p0.z - p0.lz * (off + 2), yaw, length: 90 });
+    } else {
+      // オーバル：外側に観客席を並べ、内側にピット
+      const meanK = path.reduce((a, q) => a + q.k, 0) / n;
+      const out = meanK >= 0 ? -1 : 1;
+      for (const ds of [-140, 0, 140]) {
+        const q = path[((Math.round(ds / (length / n)) % n) + n) % n];
+        const o = (width / 2 + 14) * out;
+        buildings.push({ kind: 'stand', x: q.x + q.lx * o, y: q.y, z: q.z + q.lz * o, yaw: yawFromDir(q.tx, q.tz) + (out > 0 ? 0 : Math.PI), length: 120 });
+      }
+      const o = (width / 2 + 25) * -out;
+      buildings.push({ kind: 'pit', x: p0.x + p0.lx * o, y: p0.y, z: p0.z + p0.lz * o, yaw: yaw + (out > 0 ? Math.PI : 0), length: 110 });
+    }
+  }
+  // 市街地：壁の外に街の建物
+  if (t?.auto === 'street' && index) {
+    const rnd = rng(77);
+    const e = width / 2;
+    const colors = [0xb8b0a4, 0xd2c8b8, 0x9aa3ad, 0xc9b79c, 0x8d8f94, 0xe0dcd2, 0xa48f7a];
+    for (let s0 = 0; s0 < length; s0 += 24) {
+      const p = path[Math.floor(s0 / (length / n)) % n];
+      for (const side of [1, -1]) {
+        if (rnd() < 0.25) continue;
+        const gap = e + 5 + rnd() * 10, depth = 12 + rnd() * 18, len = 14 + rnd() * 12, h = 9 + rnd() * 38;
+        const c = gap + depth / 2;
+        const x = p.x + p.lx * c * side, z = p.z + p.lz * c * side;
+        // 四隅と中心がどれもコースから離れていること
+        let ok = true;
+        for (const [a, b] of [[0, 0], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+          const px = x + p.tx * (len / 2) * a + p.lx * (depth / 2) * b, pz = z + p.tz * (len / 2) * a + p.lz * (depth / 2) * b;
+          const q = index.nearest(px, pz);
+          if (q && q.d < e + 4) { ok = false; break; }
+        }
+        if (!ok) continue;
+        buildings.push({ kind: 'block', x, y: heightAt(x, z) - 0.5, z, yaw: yawFromDir(p.tx, p.tz), length: len, depth, height: h, color: colors[Math.floor(rnd() * colors.length)] });
+      }
+    }
+  }
+
+  // 橋の柱：橋の区間に 8 m ごと。下を通る道の上には立てない
+  const pillars: CourseData['pillars'] = [];
+  if (t && index) {
+    const e = width / 2;
+    for (let i = 0; i < n; i += 8) {
+      const p = path[i];
+      if (!p.bridge) continue;
+      const below = index.branches(p.x, p.z, e + 2).filter((q) => { const di = Math.abs(q.i - i); return Math.min(di, n - di) > 60; });
+      if (below.length > 0) continue;
+      const bottom = terrainHeight(p.x, p.z);
+      if (p.y - bottom > 1.5) pillars.push([p.x, p.y - 0.4, p.z, bottom - 0.5]);
+    }
   }
 
   // スタート位置
@@ -491,7 +714,7 @@ export function buildCourse(def: CourseDef): CourseData {
       const s = length - 12 - row * 10 - (side < 0 ? 4 : 0);
       const p = path[Math.floor(s) % n];
       const off = (width / 4) * side;
-      grid.push({ x: p.x + p.lx * off, y: p.y, z: p.z + p.lz * off, yaw: yawFromDir(p.tx, p.tz) });
+      grid.push({ x: p.x + p.lx * off, y: p.y - off * Math.tan(p.bank), z: p.z + p.lz * off, yaw: yawFromDir(p.tx, p.tz), up: pathUp(path, Math.floor(s) % n) });
     }
   } else {
     const st = def.start ?? { x: 0, z: 0, yaw: 0 };
@@ -501,7 +724,7 @@ export function buildCourse(def: CourseDef): CourseData {
   return {
     def, bounds: { x0, z0, x1, z1 },
     terrain: { nx, nz, cell, vertices, colors, parts: terrainParts },
-    road, shoulder, path, length, width, ramps, rocks, walls, kerbs, trees, buildings, cones, tireStacks, grid, heightAt,
+    road, shoulder, path, length, width, ramps, rocks, walls, kerbs, trees, buildings, pillars, cones, tireStacks, grid, heightAt,
   };
 }
 
@@ -516,6 +739,13 @@ export function populate(pw: PhysicsWorld, c: CourseData) {
   for (const r of c.ramps) pw.addStaticConvex(r, SURFACES.concrete);
   for (const r of c.rocks) pw.addStaticConvex(r, SURFACES.rock);
   for (const w of c.walls) pw.addStaticBox([w.cx, w.cy, w.cz], w.half, w.yaw);
+  // 街の建物と橋の柱にもぶつかる
+  for (const b of c.buildings) {
+    if (b.kind !== 'block') continue;
+    const h = b.height ?? 12;
+    pw.addStaticBox([b.x, b.y + h / 2, b.z], [(b.depth ?? 14) / 2, h / 2, b.length / 2], b.yaw);
+  }
+  for (const [x, top, z, bottom] of c.pillars) pw.addStaticBox([x, (top + bottom) / 2, z], [0.7, Math.max(0.25, (top - bottom) / 2), 0.7], 0);
   for (const s of c.tireStacks) pw.addTireStack(s.x, s.y, s.z, s.count);
   for (const [x, y, z] of c.cones) pw.addCone(x, y, z);
   // 地形の外へ落ちないように縁を囲う

@@ -7,7 +7,7 @@ import { KeyboardInput } from './game/input';
 import { TouchControls } from './game/touch';
 import { Session } from './game/session';
 import { GameView } from './render/view';
-import type { CourseDef } from './sim/course';
+import type { CourseCategory, CourseDef } from './sim/course';
 import { COURSES } from './sim/courses';
 import type { CarParams } from './sim/params';
 import { cloneParams, computeDerived } from './sim/params';
@@ -18,6 +18,29 @@ import type { QualityPref } from './render/quality';
 import { quality } from './render/quality';
 import { buildSettingsForm, renderDerived } from './ui/settings';
 import { exportCar, importCar, loadCustomCars, saveCustomCars } from './ui/storage';
+
+/** コースの形の小さな図（制御点を結ぶ） */
+function drawThumb(cv: HTMLCanvasElement, c: CourseDef) {
+  const g = cv.getContext('2d')!;
+  const W = cv.width, H = cv.height;
+  g.clearRect(0, 0, W, H);
+  const pts = c.track?.points;
+  if (!pts) {
+    g.strokeStyle = '#9aa4b2'; g.lineWidth = 2; g.strokeRect(W * 0.3, H * 0.15, W * 0.4, H * 0.7);
+    g.fillStyle = '#e0b020'; for (const k of [0.4, 0.5, 0.6]) g.fillRect(W * k - 3, H * 0.55, 6, 6);
+    return;
+  }
+  const xs = pts.map((p) => p[0]), zs = pts.map((p) => p[1]);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), z0 = Math.min(...zs), z1 = Math.max(...zs);
+  const sc = Math.min((W - 16) / (x1 - x0), (H - 16) / (z1 - z0));
+  const ox = (W - (x1 - x0) * sc) / 2, oz = (H - (z1 - z0) * sc) / 2;
+  g.strokeStyle = '#e8ecf2'; g.lineWidth = 2.5; g.lineJoin = 'round';
+  g.beginPath();
+  pts.forEach(([x, z], i) => { const px = ox + (x - x0) * sc, pz = oz + (z - z0) * sc; if (i === 0) g.moveTo(px, pz); else g.lineTo(px, pz); });
+  g.closePath(); g.stroke();
+  const [sx, sz] = pts[0];
+  g.fillStyle = '#ffb000'; g.beginPath(); g.arc(ox + (sx - x0) * sc, oz + (sz - z0) * sc, 4, 0, Math.PI * 2); g.fill();
+}
 
 const PREFS = 'racing-sim.prefs.v1';
 interface Prefs { volume: number; muted: boolean; tiltRange: number; centerSoft: number; manual: boolean; quality: QualityPref }
@@ -141,17 +164,23 @@ class App {
   }
 
   // ------------------------------------------------------------ コース
+  private courseTab: CourseCategory = 'original';
+
   private showCourse() {
+    this.courseTab = this.course.category ?? 'original';
+    const tabs: [CourseCategory, string][] = [['original', 'オリジナル'], ['international', '国際サーキット'], ['technical', 'テクニカル'], ['street', '市街地'], ['oval', 'オーバル']];
     const el = this.screen(`
       <h2>1. コースを選ぶ</h2>
-      <div class="cards">${COURSES.map((c) => `
-        <button class="card ${c.id === this.course.id ? 'selected' : ''}" data-course="${c.id}">
-          <div class="card-title">${c.name}</div><div class="card-text">${c.description}</div>
-        </button>`).join('')}</div>
+      <div class="tabs">${tabs.map(([k, n]) => `<button class="tab ${k === this.courseTab ? 'selected' : ''}" data-tab="${k}">${n}</button>`).join('')}</div>
+      <div class="course-grid"></div>
+      <p class="note credit"></p>
       <div class="race-options"></div>
-      <div class="buttons"><button data-back>戻る</button><button class="primary" data-next>次へ（車を選ぶ）</button></div>`);
+      <div class="buttons"><button data-back>戻る</button><button class="primary" data-next>次へ（車を選ぶ）</button></div>`, 'panel course-panel');
+    const grid = el.querySelector('.course-grid') as HTMLElement;
+    const credit = el.querySelector('.credit') as HTMLElement;
     const opts = el.querySelector('.race-options') as HTMLElement;
     const renderOpts = () => {
+      credit.textContent = this.course.credit ?? '';
       if (!this.course.track) { opts.innerHTML = '<p class="note">自由走行（周回と対戦相手はなし）</p>'; return; }
       opts.innerHTML = `
         <label class="field"><span class="field-name">周回数</span><input type="number" min="1" max="20" value="${this.laps}" data-laps></label>
@@ -163,12 +192,27 @@ class App {
       (opts.querySelector('[data-opp]') as HTMLInputElement).oninput = (e) => { this.opponents = Math.max(0, Math.min(7, Number((e.target as HTMLInputElement).value) || 0)); };
       (opts.querySelector('[data-same]') as HTMLSelectElement).onchange = (e) => { this.sameCar = (e.target as HTMLSelectElement).value === 'same'; };
     };
+    const renderGrid = () => {
+      const list = COURSES.filter((c) => (c.category ?? 'original') === this.courseTab);
+      grid.innerHTML = list.map((c) => `
+        <button class="course-card ${c.id === this.course.id ? 'selected' : ''}" data-course="${c.id}">
+          <canvas width="160" height="100" data-thumb="${c.id}"></canvas>
+          <div class="card-title">${c.name}</div><div class="card-text">${c.description}</div>
+        </button>`).join('');
+      grid.querySelectorAll<HTMLCanvasElement>('canvas[data-thumb]').forEach((cv) => drawThumb(cv, COURSES.find((c) => c.id === cv.dataset.thumb)!));
+      this.on(grid, '[data-course]', (b) => {
+        this.course = COURSES.find((c) => c.id === b.dataset.course)!;
+        this.laps = this.course.laps || 3;
+        grid.querySelectorAll('.course-card').forEach((c) => c.classList.toggle('selected', c === b));
+        renderOpts();
+      });
+    };
+    renderGrid();
     renderOpts();
-    this.on(el, '[data-course]', (b) => {
-      this.course = COURSES.find((c) => c.id === b.dataset.course)!;
-      this.laps = this.course.laps || 3;
-      el.querySelectorAll('.card').forEach((c) => c.classList.toggle('selected', c === b));
-      renderOpts();
+    this.on(el, '[data-tab]', (b) => {
+      this.courseTab = b.dataset.tab as CourseCategory;
+      el.querySelectorAll('.tab').forEach((t) => t.classList.toggle('selected', t === b));
+      renderGrid();
     });
     this.on(el, '[data-back]', () => this.showTitle());
     this.on(el, '[data-next]', () => this.showCarSelect());

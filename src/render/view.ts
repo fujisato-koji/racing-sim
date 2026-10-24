@@ -203,7 +203,7 @@ export class GameView {
       const hood = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.16, 0.05), new THREE.MeshStandardMaterial({ color: 0x15171b, roughness: 0.9 }));
       hood.position.z = -0.03;
       grp.add(hood, face);
-      grp.position.set(ex, g.beltY + 0.13, ez - 0.5);
+      grp.position.set(ex, g.beltY + 0.165, ez - 0.5);
       // 運転席の目のほうへ向ける
       grp.rotation.x = -0.38;
       this.cars.get(pv)!.group.add(grp);

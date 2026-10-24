@@ -1,5 +1,6 @@
 // 車の見た目。諸元の寸法から車体の面を作り（car-body.ts）、ライト、ミラー、羽根、タイヤとホイールを付ける。
 import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { CarParams } from '../sim/params';
 import { carGeometry } from '../sim/params';
@@ -12,8 +13,9 @@ const rimMat = new THREE.MeshStandardMaterial({ color: 0xc4c8cf, metalness: 0.85
 const discMat = new THREE.MeshStandardMaterial({ color: 0x6d6f73, metalness: 0.7, roughness: 0.5 });
 const caliperMat = new THREE.MeshStandardMaterial({ color: 0xb3261e, roughness: 0.5 });
 const darkMat = new THREE.MeshStandardMaterial({ color: 0x18191c, roughness: 0.75 });
-const trimMat = new THREE.MeshStandardMaterial({ color: 0x0d0e10, roughness: 0.6, metalness: 0.2 });
 const headMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff2d0, emissiveIntensity: 0.9, roughness: 0.1 });
+const plasticMat = new THREE.MeshStandardMaterial({ color: 0x111214, roughness: 0.55, metalness: 0.1 });
+const housingMat = new THREE.MeshStandardMaterial({ color: 0x1c1f24, roughness: 0.25, metalness: 0.6 });
 
 /** ハンドルの回転角 [rad]（右に切ると正）。実際の前輪の切れ角の平均 × ステアリングギア比 */
 export function steeringWheelAngle(v: Vehicle) {
@@ -22,7 +24,8 @@ export function steeringWheelAngle(v: Vehicle) {
 
 function paintMaterial(color: string) {
   if (quality.level === 'low') return new THREE.MeshStandardMaterial({ color: new THREE.Color(color), metalness: 0.4, roughness: 0.4 });
-  return new THREE.MeshPhysicalMaterial({ color: new THREE.Color(color), metalness: 0.45, roughness: 0.38, clearcoat: 1, clearcoatRoughness: 0.08 });
+  // 塗装：金属粉の入った下地に透明な上塗り
+  return new THREE.MeshPhysicalMaterial({ color: new THREE.Color(color), metalness: 0.55, roughness: 0.42, clearcoat: 1, clearcoatRoughness: 0.05, envMapIntensity: 1.1 });
 }
 
 function glassMaterial() {
@@ -41,17 +44,22 @@ function tireGeometry(r: number, w: number) {
   return new THREE.LatheGeometry(pts, 32).rotateZ(Math.PI / 2);
 }
 
-/** ホイール：リム、5 本のスポーク、中心（外側の面が side の向き） */
+/** ホイール：リム、外周の縁、10 本のスポーク（中心へ向けてへこむ）、中心（外側の面が side の向き） */
 function rimGeometry(r: number, w: number, side: number) {
-  const rr = r * 0.65;
+  const rr = r * 0.66;
   const parts: THREE.BufferGeometry[] = [];
-  parts.push(new THREE.CylinderGeometry(rr, rr, w * 0.96, 24, 1, true).rotateZ(Math.PI / 2));
-  const face = side * (w / 2 - 0.012);
-  for (let s = 0; s < 5; s++) {
-    const a = (s / 5) * Math.PI * 2;
-    parts.push(new THREE.BoxGeometry(0.022, rr * 0.95, 0.045).translate(0, rr * 0.48, 0).rotateX(a).translate(face, 0, 0));
+  parts.push(new THREE.CylinderGeometry(rr, rr, w * 0.96, 28, 1, true).rotateZ(Math.PI / 2));
+  // 外周の縁
+  parts.push(new THREE.TorusGeometry(rr * 0.98, 0.012, 6, 28).rotateY(Math.PI / 2).translate(side * (w / 2 - 0.01), 0, 0));
+  const face = side * (w / 2 - 0.018);
+  for (let s = 0; s < 10; s++) {
+    const a = (s / 10) * Math.PI * 2 + (s % 2) * 0.12;
+    // 外周は外側、中心は奥（へこんだ面）
+    const sp = new THREE.BoxGeometry(0.016, rr * 0.82, 0.028).translate(0, rr * 0.5, 0);
+    sp.rotateZ(side * 0.18);
+    parts.push(sp.rotateX(a).translate(face - side * 0.02, 0, 0));
   }
-  parts.push(new THREE.CylinderGeometry(rr * 0.22, rr * 0.25, 0.04, 12).rotateZ(Math.PI / 2).translate(face, 0, 0));
+  parts.push(new THREE.CylinderGeometry(rr * 0.2, rr * 0.24, 0.05, 14).rotateZ(Math.PI / 2).translate(face - side * 0.03, 0, 0));
   // 合わせる前に索引の有無をそろえる
   return mergeGeometries(parts.map((x) => (x.index ? x.toNonIndexed() : x)))!;
 }
@@ -75,60 +83,116 @@ export class CarMesh {
       return m;
     };
 
-    // 車体
+    // 車体：塗装、黒い下回り、ガラス、屋根と柱、黒い縁
     const body = buildBody(p, g);
     const pr = body.profile;
     add(new THREE.Mesh(body.paint, this.paint));
+    add(new THREE.Mesh(body.trim, plasticMat));
     add(new THREE.Mesh(body.glass, this.glass));
     add(new THREE.Mesh(body.pillars, this.paint));
+    add(new THREE.Mesh(body.blackout, plasticMat));
 
     const zf = pr.zf, zr = pr.zr;
-    // 前：ライト、グリル
-    const zl = zf + 0.1;
+    const rbox = (w: number, h: number, d: number, r = 0.012) => new RoundedBoxGeometry(w, h, d, 2, Math.min(r, w / 2.2, h / 2.2, d / 2.2));
+    // 前：細いライト（黒い枠と光る帯）を前の面の上の角に、グリルと吸気口を前の面の表に
+    const zl = zf + 0.04;
     const yl = pr.top(zl) - 0.05;
+    const lw = b.width * 0.17;
     for (const s of [-1, 1]) {
-      const l = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 8), headMat);
-      l.scale.set(0.17, 0.05, 0.09);
-      l.position.set(s * pr.halfWidth(zl) * 0.66, yl, zl - 0.01);
-      add(l, false);
+      const x = s * pr.halfWidth(zl) * 0.62;
+      const lamp = new THREE.Group();
+      lamp.add(new THREE.Mesh(rbox(lw, 0.05, 0.14, 0.018), housingMat));
+      const bar = new THREE.Mesh(rbox(lw * 0.88, 0.016, 0.03, 0.006), headMat);
+      bar.position.set(0, -0.006, -0.06);
+      lamp.add(bar);
+      lamp.position.set(x, yl, zl);
+      // 外へ向けて後ろへ流す
+      lamp.rotation.set(0, -s * 0.3, 0);
+      add(lamp, false);
     }
-    const zg = zf + 0.05;
-    const gh = Math.max(0.06, (pr.top(zg) - pr.bottom(zg)) * 0.35);
-    const grille = new THREE.Mesh(new THREE.BoxGeometry(pr.halfWidth(zg) * 1.1, gh, 0.03), trimMat);
-    grille.position.set(0, (pr.bottom(zg) + pr.top(zg)) / 2 - 0.03, zf + 0.025);
+    const zg = zf + 0.02;
+    const fb = pr.bottom(zg), ft = pr.top(zg);
+    const ghw = pr.halfWidth(zg);
+    const grille = new THREE.Mesh(rbox(ghw * 0.85, Math.max(0.05, (ft - fb) * 0.24), 0.03, 0.02), plasticMat);
+    grille.position.set(0, fb + (ft - fb) * 0.55, zf - 0.006);
     add(grille, false);
-    // 後ろ：灯火、排気管
+    const big = pr.st.aero;
+    const intake = new THREE.Mesh(rbox(ghw * (big ? 1.45 : 1.3), Math.max(0.04, (ft - fb) * (big ? 0.34 : 0.16)), 0.03, 0.025), plasticMat);
+    intake.position.set(0, fb + (ft - fb) * (big ? 0.3 : 0.2), zf - 0.004);
+    add(intake, false);
+    if (big) {
+      // 両脇の吸気口
+      for (const s of [-1, 1]) {
+        const side = new THREE.Mesh(rbox(0.16, Math.max(0.05, (ft - fb) * 0.3), 0.03, 0.02), plasticMat);
+        side.position.set(s * ghw * 0.95, fb + (ft - fb) * 0.32, zf + 0.03);
+        side.rotation.y = -s * 0.5;
+        add(side, false);
+      }
+    }
+    if (pr.st.aero) {
+      const sp = new THREE.Mesh(new THREE.BoxGeometry(pr.halfWidth(zf + 0.06) * 1.7, 0.016, 0.07), plasticMat);
+      sp.position.set(0, pr.bottom(zf + 0.1) - 0.004, zf + 0.06);
+      add(sp, false);
+    }
+    // 後ろ：横一文字の灯火と両端、ディフューザー、排気管
     this.brakeMat = new THREE.MeshStandardMaterial({ color: 0x8a0d0d, emissive: 0xff1a1a, emissiveIntensity: 0.25, roughness: 0.2 });
-    const zt = zr - 0.03;
-    const yt = pr.top(zt - 0.05) - 0.07;
+    const zt = zr + 0.004;
+    const yt = pr.top(zr - 0.12) - 0.06;
+    const thw = pr.halfWidth(zr - 0.05);
+    const strip = new THREE.Mesh(rbox(thw * 1.7, 0.03, 0.03, 0.01), this.brakeMat);
+    strip.position.set(0, yt, zt);
+    add(strip, false);
     for (const s of [-1, 1]) {
-      const t = new THREE.Mesh(new THREE.BoxGeometry(pr.halfWidth(zt) * 0.5, 0.07, 0.04), this.brakeMat);
-      t.position.set(s * pr.halfWidth(zt) * 0.62, yt, zt);
+      const t = new THREE.Mesh(rbox(thw * 0.42, 0.065, 0.05, 0.015), this.brakeMat);
+      t.position.set(s * thw * 0.7, yt - 0.01, zt - 0.01);
       add(t, false);
     }
+    if (pr.st.aero) {
+      const dif = new THREE.Mesh(new THREE.BoxGeometry(b.width * 0.7, 0.08, 0.2), plasticMat);
+      dif.position.set(0, pr.bottom(zr - 0.1) + 0.02, zr - 0.08);
+      add(dif, false);
+      for (let k = -2; k <= 2; k++) {
+        const fin = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.09, 0.22), plasticMat);
+        fin.position.set(k * b.width * 0.12, pr.bottom(zr - 0.1) + 0.02, zr - 0.08);
+        add(fin, false);
+      }
+    }
     for (const s of [-1, 1]) {
-      const e = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.12, 12).rotateX(Math.PI / 2), rimMat);
-      e.position.set(s * b.width * 0.28, pr.bottom(zr - 0.1) + 0.05, zr - 0.02);
+      const e = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.038, 0.14, 16).rotateX(Math.PI / 2), rimMat);
+      e.position.set(s * b.width * (pr.st.aero ? 0.12 : 0.3), pr.bottom(zr - 0.1) + 0.06, zr - 0.03);
       add(e, false);
     }
-    // ミラー
-    const zm = g.cabinFrontZ + 0.22;
+    // ミラー：支柱の先に車体色の殻
+    const zm = g.cabinFrontZ + 0.2;
     for (const s of [-1, 1]) {
-      const m = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.075, 0.15), this.paint);
-      m.position.set(s * (pr.halfWidth(zm) * 0.93 + 0.08), pr.belt + 0.08, zm);
-      add(m, false);
+      const bx = s * pr.halfWidth(zm) * 0.86;
+      const stalk = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.02, 0.04), plasticMat);
+      stalk.position.set(bx + s * 0.04, pr.beltAt(zm) + 0.04, zm);
+      add(stalk, false);
+      const shell = new THREE.Mesh(rbox(0.07, 0.07, 0.13, 0.03), this.paint);
+      shell.position.set(bx + s * 0.1, pr.beltAt(zm) + 0.07, zm + 0.01);
+      add(shell, false);
     }
-    // 羽根
-    if (pr.st.wing) {
-      const zw = zr - 0.22;
+    // 羽根：小さな縁か、支柱の上の羽根
+    if (pr.st.wing === 'lip') {
+      const zw = Math.min(zr - 0.06, g.cabinRearZ + 0.05);
+      const lip = new THREE.Mesh(rbox(b.width * 0.72, 0.02, 0.1, 0.008), this.paint);
+      lip.position.set(0, pr.top(zw) + 0.012, zw);
+      lip.rotation.x = 0.12;
+      add(lip, false);
+    } else if (pr.st.wing === 'wing') {
+      const zw = zr - 0.2;
       const yw = pr.top(zw) + 0.2;
-      const wing = new THREE.Mesh(new THREE.BoxGeometry(b.width * 0.86, 0.025, 0.26), this.paint);
+      const wing = new THREE.Mesh(rbox(b.width * 0.88, 0.022, 0.28, 0.01), this.paint);
       wing.position.set(0, yw, zw);
-      wing.rotation.x = 0.08;
+      wing.rotation.x = 0.1;
       add(wing);
       for (const s of [-1, 1]) {
-        const post = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.2, 0.08), trimMat);
-        post.position.set(s * b.width * 0.3, yw - 0.1, zw);
+        const plate = new THREE.Mesh(new THREE.BoxGeometry(0.01, 0.1, 0.32), plasticMat);
+        plate.position.set(s * b.width * 0.44, yw - 0.02, zw);
+        add(plate, false);
+        const post = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.2, 0.07), plasticMat);
+        post.position.set(s * b.width * 0.28, yw - 0.1, zw);
         add(post, false);
       }
     }

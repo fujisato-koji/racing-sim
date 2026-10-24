@@ -21,13 +21,28 @@ export class AiDriver {
     const top = estimateTopSpeed(p) * 0.98;
     const v = new Float32Array(n);
     const span = Math.round(6 / ds);
+    // 坂（勾配）と、縦の曲がり（頂上で負、くぼみで正）。前後 10 m で見る
+    const w10 = Math.max(1, Math.round(10 / ds));
+    const slope = new Float32Array(n), vcurv = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const a = path[(i - w10 + n) % n].y, b = path[i].y, c = path[(i + w10) % n].y;
+      slope[i] = (c - a) / (2 * w10 * ds);
+      vcurv[i] = (a - 2 * b + c) / ((w10 * ds) ** 2);
+    }
     for (let i = 0; i < n; i++) {
       let k = 0;
       for (let j = -span; j <= span; j++) k = Math.max(k, Math.abs(path[(i + j + n) % n].k));
       // 横の摩擦は 85% まで（ブレーキとアクセルに残す）
       const mu = p.tire.mu * SURFACES[path[i].surface].mu * skill * 0.85;
       // ダウンフォースのぶんだけ速く曲がれる（速さに依る式を 1 回だけ回して近似）
-      let vmax = Math.sqrt((mu * G) / Math.max(k, 1e-5));
+      // バンクが曲がる向きに傾いていれば、そのぶん速く曲がれる
+      const th = path[i].bank * Math.sign(path[i].k || 1);
+      const bankGain = Math.max(0.3, (Math.sin(th) + mu * Math.cos(th)) / Math.max(0.05, Math.cos(th) - mu * Math.sin(th)) / mu);
+      // 頂上では車が軽くなって曲がれる速さが下がる：v² = μ(g + v²κv)/k を v について解く
+      const kv = Math.max(-0.02, Math.min(0.02, vcurv[i]));
+      let vmax = Math.sqrt((mu * G * bankGain) / Math.max(k - mu * kv, k * 0.3, 1e-5));
+      // 頂上そのものも速すぎると浮くので、v² < g / |κv| の 8 割に抑える
+      if (kv < -1e-4) vmax = Math.min(vmax, Math.sqrt((0.8 * G) / -kv));
       const df = (0.5 * 1.225 * p.aero.frontalArea * (p.aero.clFront + p.aero.clRear)) / p.body.mass;
       if (df > 0 && k > 1e-5) vmax = Math.sqrt((mu * G) / Math.max(k - mu * df, k * 0.3));
       v[i] = Math.min(top, vmax);
@@ -36,7 +51,8 @@ export class AiDriver {
     for (let pass = 0; pass < 2; pass++) {
       for (let i = n - 1; i >= 0; i--) {
         const next = v[(i + 1) % n];
-        const a = p.tire.mu * SURFACES[path[i].surface].mu * G * skill * 0.7;
+        // 下り坂ではブレーキで落とせる減速が小さい
+        const a = Math.max(1.5, p.tire.mu * SURFACES[path[i].surface].mu * G * skill * 0.7 + G * slope[i]);
         v[i] = Math.min(v[i], Math.sqrt(next * next + 2 * a * ds));
       }
     }

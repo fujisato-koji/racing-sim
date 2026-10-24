@@ -4,6 +4,7 @@ import { chromium } from 'playwright-core';
 
 const out = process.argv[2] ?? '.';
 const courseId = process.argv[3] ?? 'circuit';
+const tab = process.argv[4] ?? 'original';
 const url = process.env.URL ?? 'http://localhost:4173/';
 const browser = await chromium.launch({ channel: 'msedge', headless: true, args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
@@ -14,6 +15,7 @@ await page.goto(url);
 await page.waitForSelector('[data-go]', { timeout: 60000 });
 await page.screenshot({ path: `${out}/s1-title.png` });
 await page.click('[data-go]');
+await page.click(`[data-tab="${tab}"]`);
 await page.click(`[data-course="${courseId}"]`);
 await page.screenshot({ path: `${out}/s2-course.png` });
 await page.click('[data-next]');
