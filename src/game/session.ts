@@ -15,6 +15,11 @@ import type { TerrainSampler } from '../sim/terrain-sampler';
 import type { RealBuilding } from '../sim/osm-buildings';
 import { TimeAttack, carKeyOf } from './timeattack';
 
+/** 実況に渡す出来事。hit はプレイヤーの車がぶつかったとき（force は接触の力 [N]） */
+export type RaceEvent =
+  | { type: 'respawn'; racer: Racer }
+  | { type: 'hit'; force: number; other: Racer | null; prop: string | null };
+
 export interface SessionConfig {
   course: CourseDef;
   player: CarParams | null;
@@ -47,6 +52,8 @@ export class Session {
   /** 描画の補間に使う、最後のステップからの経過の割合 */
   alpha = 0;
   paused = false;
+  /** 実況に渡す出来事（読んだ側が空にする） */
+  readonly events: RaceEvent[] = [];
   /** 画面に出す短い知らせ（文と、いつまで出すか） */
   notice: { text: string; until: number } | null = null;
 
@@ -98,7 +105,24 @@ export class Session {
       if (r.isPlayer) r.vehicle.controls = this.playerInput(dt, r.vehicle);
       else if (r.ai) r.vehicle.controls = r.ai.update(dt, vehicles);
     }
+    const n0 = this.pw.impacts.length;
     this.pw.step();
+    // プレイヤーの車の接触を拾う（音が読む前の、このステップで増えた分）
+    const me = this.player?.vehicle;
+    if (me) {
+      let best: (typeof this.pw.impacts)[number] | null = null;
+      for (let k = n0; k < this.pw.impacts.length; k++) {
+        const h = this.pw.impacts[k];
+        if ((h.vehicle === me || h.other === me) && (!best || h.force > best.force)) best = h;
+      }
+      if (best) {
+        const otherCar = best.vehicle === me ? best.other : best.vehicle;
+        this.events.push({ type: 'hit', force: best.force, other: this.racers.find((r) => r.vehicle === otherCar) ?? null, prop: best.prop });
+      }
+    }
+    // 音を鳴らしていないとき（Node での検算）も溜まりすぎないように
+    if (this.pw.impacts.length > 48) this.pw.impacts.splice(0, this.pw.impacts.length - 48);
+    if (this.events.length > 64) this.events.splice(0, this.events.length - 64);
     this.race.update(dt);
     if (this.attack) {
       const before = this.attack.laps.length;
@@ -138,6 +162,7 @@ export class Session {
   /** 経路の近くの、少し手前に置き直す */
   respawn(r: Racer) {
     const v = r.vehicle;
+    this.events.push({ type: 'respawn', racer: r });
     if (r.isPlayer && this.attack && this.race.state === 'running') {
       this.attack.markInvalid();
       this.say('Lap invalid: you were reset to the track', 2.5);

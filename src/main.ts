@@ -2,6 +2,9 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import './style.css';
 import { Sound } from './audio/sound';
+import type { VoiceMode } from './audio/voice';
+import { Voice } from './audio/voice';
+import { Commentator } from './game/commentary';
 import { GamepadInput } from './game/gamepad';
 import { KeyboardInput } from './game/input';
 import { TouchControls } from './game/touch';
@@ -64,9 +67,9 @@ function drawThumb(cv: HTMLCanvasElement, c: CourseDef, color = '#e8ecf2') {
 }
 
 const PREFS = 'racing-sim.prefs.v1';
-interface Prefs { volume: number; muted: boolean; tiltRange: number; centerSoft: number; manual: boolean; quality: QualityPref; keySteer: number }
+interface Prefs { volume: number; muted: boolean; tiltRange: number; centerSoft: number; manual: boolean; quality: QualityPref; keySteer: number; voice: VoiceMode }
 function loadPrefs(): Prefs {
-  const d: Prefs = { volume: 0.7, muted: false, tiltRange: 40, centerSoft: 1, manual: false, quality: 'auto', keySteer: 1 };
+  const d: Prefs = { volume: 0.7, muted: false, tiltRange: 40, centerSoft: 1, manual: false, quality: 'auto', keySteer: 1, voice: 'all' };
   try { return { ...d, ...(JSON.parse(localStorage.getItem(PREFS) ?? '{}') as Partial<Prefs>) }; } catch { return d; }
 }
 function savePrefs(p: Prefs) {
@@ -102,6 +105,9 @@ class App {
   private readonly touch: TouchControls;
   private readonly pad = new GamepadInput();
   private readonly sound = new Sound();
+  /** 読み上げ（メニューと実況） */
+  private readonly voice = new Voice();
+  private commentator: Commentator | null = null;
   private readonly prefs = loadPrefs();
   private session: Session | null = null;
   private course: CourseDef = COURSES[1];
@@ -126,6 +132,9 @@ class App {
     this.input.sensitivity = this.prefs.keySteer;
     this.sound.volume = this.prefs.volume;
     this.sound.muted = this.prefs.muted;
+    this.voice.volume = this.prefs.volume;
+    this.voice.muted = this.prefs.muted;
+    this.voice.mode = this.prefs.voice;
     this.touch.setMuted(this.prefs.muted);
     this.overlay = overlay;
     const act = (a: string) => {
@@ -190,6 +199,7 @@ class App {
     this.pad.poll();
     if (s) {
       s.update(dt);
+      if (!s.paused && !this.resultsShown) this.commentator?.update(dt);
       this.view.render(dt);
       this.hud.update(s, dt, this.view.mode === 'cockpit');
       if (s.race.state === 'finished' && !this.resultsShown) {
@@ -315,6 +325,7 @@ class App {
         if (c) { this.course = c; this.laps = c.laps || 3; }
       }
       this.showCourse();
+      if (courseId) this.voice.menu(this.courseLine(this.course));
     };
     this.on(el, '[data-go]', () => start());
     this.setNav(el, { enter: '[data-go]' });
@@ -338,7 +349,15 @@ class App {
   private leader: HTMLElement | null = null;
   private coursePanel: HTMLElement | null = null;
 
+  /** コースの読み上げ（実在のコースは国も） */
+  private courseLine(c: CourseDef) {
+    const pl = PLACES[c.id];
+    const country = pl ? pl.place.split(',').pop()!.replace(/\(.*\)/, '').trim() : '';
+    return country && !c.name.includes(country) ? `${c.name}, ${country}.` : `${c.name}.`;
+  }
+
   private showCourse() {
+    this.voice.menu('Choose your track.');
     this.courseTab = this.course.category ?? 'original';
     const tabs: [CourseCategory, string][] = (['original', 'international', 'technical', 'street', 'oval'] as CourseCategory[]).map((k) => [k, CAT_NAME[k]]);
     const el = this.screen(`
@@ -383,7 +402,11 @@ class App {
         <label class="field"><span class="field-name">Opponent cars</span><select data-same>
           <option value="mixed" ${this.sameCar ? '' : 'selected'}>Mixed</option>
           <option value="same" ${this.sameCar ? 'selected' : ''}>Same as mine</option></select></label>`}`;
-      (opts.querySelector('[data-mode]') as HTMLSelectElement).onchange = (e) => { this.mode = (e.target as HTMLSelectElement).value as 'race' | 'attack'; renderOpts(); };
+      (opts.querySelector('[data-mode]') as HTMLSelectElement).onchange = (e) => {
+        this.mode = (e.target as HTMLSelectElement).value as 'race' | 'attack';
+        this.voice.menu(this.mode === 'attack' ? 'Time attack.' : 'Race against the A.I.');
+        renderOpts();
+      };
       if (attack) return;
       (opts.querySelector('[data-laps]') as HTMLInputElement).oninput = (e) => { this.laps = Math.max(1, Math.min(20, Number((e.target as HTMLInputElement).value) || 1)); };
       (opts.querySelector('[data-opp]') as HTMLInputElement).oninput = (e) => { this.opponents = Math.max(0, Math.min(7, Number((e.target as HTMLInputElement).value) || 0)); };
@@ -418,6 +441,7 @@ class App {
       globe.select(PLACES[c.id] ? c.id : null, fly);
       renderOpts();
       renderCard();
+      this.voice.menu(this.courseLine(c));
     };
     const renderList = () => {
       const items = COURSES.filter((c) => (c.category ?? 'original') === this.courseTab);
@@ -447,7 +471,10 @@ class App {
     renderOpts();
     renderCard();
     globe.select(PLACES[this.course.id] ? this.course.id : null);
-    this.on(el, '[data-tab]', (b) => setTab(b.dataset.tab as CourseCategory));
+    this.on(el, '[data-tab]', (b) => {
+      setTab(b.dataset.tab as CourseCategory);
+      this.voice.menu({ original: 'Original tracks.', international: 'Grand Prix circuits.', technical: 'Technical circuits.', street: 'Street circuits.', oval: 'Ovals.' }[b.dataset.tab as CourseCategory]);
+    });
     this.on(el, '[data-back]', () => this.showTitle());
     this.on(el, '[data-next]', () => this.showCarSelect());
   }
@@ -523,6 +550,7 @@ class App {
 
   // ------------------------------------------------------------ 車
   private showCarSelect() {
+    this.voice.menu('Choose your car.');
     const all = [...CAR_PRESETS.map((p) => ({ p, custom: false })), ...this.custom.map((p) => ({ p, custom: true }))];
     const el = this.screen(`
       ${this.steps(2, 'Choose a car')}
@@ -567,6 +595,8 @@ class App {
       this.view.showCar(this.car);
       el.querySelectorAll('.car-item').forEach((c) => c.classList.toggle('selected', c === b));
       renderSum();
+      const ps = computeDerived(this.car).peakPowerKW * 1.3596;
+      this.voice.menu(`${this.car.name}. ${Math.round(ps / 5) * 5} horsepower.`);
     });
     this.on(el, '[data-back]', () => this.showCourse());
     this.on(el, '[data-detail]', () => this.showSettings());
@@ -585,6 +615,7 @@ class App {
 
   // ------------------------------------------------------------ 詳細設定
   private showSettings() {
+    this.voice.menu('Tuning.');
     const el = this.screen(`
       ${this.steps(3, 'Tuning', this.car.name)}
       <div class="settings">
@@ -662,6 +693,10 @@ class App {
       this.touch.visible = isTouch;
       this.sound.unlock();
       this.sound.start(this.session);
+      // 実況（メニューだけを読む設定なら、走り出す一言だけ）
+      this.voice.stop();
+      this.commentator = new Commentator(this.session, (t, p) => this.voice.call(t, p), Math.floor(Math.random() * 1000) + 1);
+      if (this.voice.mode === 'menu') this.voice.menu(`Let's go racing at ${this.course.name}!`);
       this.finishedAt = -1;
       this.resultsShown = false;
       this.overlay.style.display = 'none';
@@ -675,6 +710,8 @@ class App {
     if (!s || this.resultsShown) return;
     s.paused = !s.paused;
     if (!s.paused) { this.overlay.style.display = 'none'; this.setNav(null, null); return; }
+    this.voice.stop();
+    this.voice.menu('Paused.');
     const a = s.attack;
     const el = this.screen(`
       <h2>Paused</h2>
@@ -705,6 +742,7 @@ class App {
       <label class="field"><span class="field-name">Volume</span><input type="range" min="0" max="1" step="0.05" value="${this.prefs.volume}" data-volume><span class="field-unit"></span></label>
       <label class="field"><span class="field-name">Mute</span><input type="checkbox" ${this.prefs.muted ? 'checked' : ''} data-mute><span></span></label>
       <label class="field"><span class="field-name">Graphics</span><select data-quality>${(['auto', 'low', 'medium', 'high'] as const).map((q) => `<option value="${q}" ${this.prefs.quality === q ? 'selected' : ''}>${{ auto: 'Auto (lowers resolution when slow)', low: 'Low', medium: 'Medium', high: 'High' }[q]}</option>`).join('')}</select><span></span></label>
+      <label class="field"><span class="field-name">Voice</span><select data-voice>${(['all', 'menu', 'off'] as const).map((v) => `<option value="${v}" ${this.prefs.voice === v ? 'selected' : ''}>${{ all: 'Menus and race commentary', menu: 'Menus only', off: 'Off' }[v]}</option>`).join('')}</select><span></span></label>
       <label class="field"><span class="field-name">Transmission</span><select data-trans><option value="auto" ${this.prefs.manual ? '' : 'selected'}>Automatic</option><option value="manual" ${this.prefs.manual ? 'selected' : ''}>Manual (E/Q, RB/LB, on-screen ▲▼)</option></select><span></span></label>
       ${isTouch ? '' : `<label class="field"><span class="field-name">Keyboard steering speed</span><input type="range" min="0.5" max="2" step="0.1" value="${this.prefs.keySteer}" data-keysteer><span class="field-unit" data-keysteer-text>${Math.round(this.prefs.keySteer * 100)}%</span></label>`}
       ${isTouch ? `<label class="field"><span class="field-name">Tilt for full lock</span><input type="range" min="15" max="90" step="5" value="${this.prefs.tiltRange}" data-tilt><span class="field-unit" data-tilt-text>${this.prefs.tiltRange}°</span></label>
@@ -714,7 +752,7 @@ class App {
 
   private bindPrefs(el: HTMLElement) {
     const vol = el.querySelector('[data-volume]') as HTMLInputElement | null;
-    vol?.addEventListener('input', () => { this.prefs.volume = Number(vol.value); this.sound.volume = this.prefs.volume; savePrefs(this.prefs); });
+    vol?.addEventListener('input', () => { this.prefs.volume = Number(vol.value); this.sound.volume = this.prefs.volume; this.voice.volume = this.prefs.volume; savePrefs(this.prefs); });
     const qsel = el.querySelector('[data-quality]') as HTMLSelectElement | null;
     qsel?.addEventListener('change', () => {
       this.prefs.quality = qsel.value as QualityPref;
@@ -729,6 +767,13 @@ class App {
       this.prefs.keySteer = Number(ks.value);
       this.input.sensitivity = this.prefs.keySteer;
       (el.querySelector('[data-keysteer-text]') as HTMLElement).textContent = `${Math.round(this.prefs.keySteer * 100)}%`;
+      savePrefs(this.prefs);
+    });
+    const vsel = el.querySelector('[data-voice]') as HTMLSelectElement | null;
+    vsel?.addEventListener('change', () => {
+      this.prefs.voice = vsel.value as VoiceMode;
+      this.voice.mode = this.prefs.voice;
+      if (this.prefs.voice === 'off') this.voice.stop(); else this.voice.menu(this.prefs.voice === 'all' ? 'Commentary on.' : 'Menu voice on.');
       savePrefs(this.prefs);
     });
     const trans = el.querySelector('[data-trans]') as HTMLSelectElement | null;
@@ -760,12 +805,16 @@ class App {
   private setMuted(m: boolean) {
     this.prefs.muted = m;
     this.sound.muted = m;
+    this.voice.muted = m;
+    if (m) this.voice.stop();
     this.touch.setMuted(m);
     savePrefs(this.prefs);
   }
 
   private endSession() {
     this.sound.stop();
+    this.voice.stop();
+    this.commentator = null;
     this.touch.visible = false;
     this.view.clearSession();
     this.session?.dispose();

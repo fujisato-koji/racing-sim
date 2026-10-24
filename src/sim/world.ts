@@ -34,6 +34,8 @@ export interface Impact {
   force: number;
   /** ぶつかった車（どちらも車でなければ null） */
   vehicle: Vehicle | null;
+  /** 車どうしのとき、もう 1 台 */
+  other: Vehicle | null;
   /** 相手が小物（コーン、タイヤ）か */
   prop: PropKind | null;
 }
@@ -124,11 +126,13 @@ export class PhysicsWorld {
     this.world.step(this.events);
     this.events.drainContactForceEvents((e) => {
       const a = this.owners.get(e.collider1()), b = this.owners.get(e.collider2());
-      const car = (a && 'vehicle' in a ? a.vehicle : null) ?? (b && 'vehicle' in b ? b.vehicle : null);
+      const va = a && 'vehicle' in a ? a.vehicle : null, vb = b && 'vehicle' in b ? b.vehicle : null;
+      const car = va ?? vb;
+      const other = va && vb ? vb : null;
       const prop = (a && 'prop' in a ? a.prop : null) ?? (b && 'prop' in b ? b.prop : null);
       const at = car ? car.pos : prop ? prop.body.translation() : null;
       if (!at || this.impacts.length > 64) return;
-      this.impacts.push({ x: at.x, y: at.y, z: at.z, force: e.totalForceMagnitude(), vehicle: car, prop: prop ? prop.kind : null });
+      this.impacts.push({ x: at.x, y: at.y, z: at.z, force: e.totalForceMagnitude(), vehicle: car, other, prop: prop ? prop.kind : null });
     });
     for (const v of this.vehicles) v.afterStep();
     this.time += this.dt;
