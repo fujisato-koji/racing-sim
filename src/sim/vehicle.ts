@@ -96,6 +96,8 @@ export class Vehicle {
 
   gear = 1;
   shifting = 0;
+  /** 手動変速（true のときは自動で変速しない） */
+  manual = false;
   private nextGear = 1;
   private sinceShift = 0;
   private reverseTimer = 0;
@@ -574,7 +576,7 @@ export class Vehicle {
       }
       return;
     }
-    if (this.gear < 1 || this.sinceShift < 0.6) return;
+    if (this.gear < 1 || this.sinceShift < 0.6 || this.manual) return;
     const g = ratios[this.gear - 1];
     const rpmLock = Math.abs(this.dt.w[PROP]) * g * RPM;
     const red = p.engine.redlineRpm, idle = p.engine.idleRpm;
@@ -594,6 +596,39 @@ export class Vehicle {
       if (rpmLock < downAt && (rpmLock * gl) / g < red * 0.9) this.startShift(this.gear - 1);
     }
   }
+
+  /** 手動変速。上げる +1、下げる -1。止まりかけなら 1 速と後退を行き来する */
+  requestShift(dir: 1 | -1): boolean {
+    if (this.shifting > 0) return false;
+    const p = this.p, n = p.gearbox.ratios.length;
+    const slow = Math.abs(this.speed) < 2;
+    if (dir > 0) {
+      if (this.gear < 0) {
+        if (!slow) return false;
+        this.gear = 1;
+        this.dt.setGearRatio(p.gearbox.ratios[0]);
+        return true;
+      }
+      if (this.gear >= n) return false;
+      this.startShift(this.gear + 1);
+      return true;
+    }
+    if (this.gear === 1) {
+      if (!slow) return false;
+      this.gear = -1;
+      this.dt.setGearRatio(-p.gearbox.reverse);
+      return true;
+    }
+    if (this.gear < 1) return false;
+    // 下げると回りすぎるときは受け付けない（実車の変速機の保護と同じ）
+    const after = Math.abs(this.dt.w[PROP]) * p.gearbox.ratios[this.gear - 2] * RPM;
+    if (after > p.engine.redlineRpm + 300) return false;
+    this.startShift(this.gear - 1);
+    return true;
+  }
+
+  /** 変速の途中なら行き先のギア */
+  get targetGear() { return this.shifting > 0 ? this.nextGear : this.gear; }
 
   private startShift(to: number) {
     this.nextGear = to;

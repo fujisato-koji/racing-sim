@@ -3,6 +3,7 @@ import type { Session } from '../game/session';
 import type { CourseData } from '../sim/course';
 import { SURFACES } from '../sim/surfaces';
 import { steeringWheelAngle } from '../render/car-mesh';
+import { Gauges } from './gauges';
 import { isTouch } from './layout';
 
 export function formatTime(t: number) {
@@ -13,10 +14,8 @@ export function formatTime(t: number) {
 
 export class Hud {
   readonly root: HTMLDivElement;
-  private readonly speed: HTMLElement;
-  private readonly gear: HTMLElement;
-  private readonly rpmBar: HTMLElement;
-  private readonly rpmText: HTMLElement;
+  private readonly gauges = new Gauges(640, 300);
+  private readonly meter: HTMLElement;
   private readonly info: HTMLElement;
   private readonly surface: HTMLElement;
   private readonly message: HTMLElement;
@@ -41,25 +40,19 @@ export class Hud {
       <div class="hud-message"></div>
       <div class="hud-help">${isTouch
         ? 'スマホを左右に回してハンドル　右下アクセル　左下ブレーキ（止まって押し続けると後退）'
-        : '← → ハンドル　↑ アクセル　↓ ブレーキ（止まって押し続けると後退）<br>C 視点　M ミラー　N 地図　R 戻す　V 音　Esc 一時停止'}</div>
+        : '← → ハンドル　↑ アクセル　↓ ブレーキ（止まって押し続けると後退）　E/Q 手動変速<br>C 視点　M ミラー　N 地図　R 戻す　V 音　Esc 一時停止'}</div>
       <div class="hud-wheel"><svg viewBox="-50 -50 100 100">
         <circle r="44" fill="none" stroke="#e8ecf2" stroke-width="7"/>
         <circle r="10" fill="#e8ecf2"/>
         <path d="M -42 4 L -10 2 M 42 4 L 10 2 M 0 10 L 0 42" stroke="#e8ecf2" stroke-width="7" stroke-linecap="round"/>
         <path d="M -6 -44 L 6 -44" stroke="#ffb000" stroke-width="7" stroke-linecap="round"/>
       </svg><div class="hud-wheel-deg"></div></div>
-      <div class="hud-meter">
-        <div class="hud-surface"></div>
-        <div class="hud-rpm"><div class="hud-rpm-bar"></div></div>
-        <div class="hud-row"><span class="hud-speed">0</span><span class="hud-unit">km/h</span><span class="hud-gear">1</span></div>
-        <div class="hud-rpm-text"></div>
-      </div>`;
+      <div class="hud-meter"><div class="hud-surface"></div></div>`;
     parent.appendChild(this.root);
     const q = (c: string) => this.root.querySelector(c) as HTMLElement;
-    this.speed = q('.hud-speed');
-    this.gear = q('.hud-gear');
-    this.rpmBar = q('.hud-rpm-bar');
-    this.rpmText = q('.hud-rpm-text');
+    this.meter = q('.hud-meter');
+    this.gauges.canvas.className = 'hud-gauges';
+    this.meter.appendChild(this.gauges.canvas);
     this.info = q('.hud-info');
     this.surface = q('.hud-surface');
     this.message = q('.hud-message');
@@ -130,18 +123,11 @@ export class Hud {
     const deg = (steeringWheelAngle(v) * 180) / Math.PI;
     this.wheelSvg.style.transform = `rotate(${deg.toFixed(1)}deg)`;
     this.wheelDeg.textContent = `${Math.abs(deg) < 0.5 ? 0 : Math.round(deg)}°`;
-    this.speed.textContent = Math.abs(v.speed * 3.6).toFixed(0);
-    this.gear.textContent = v.gear < 0 ? 'R' : String(v.gear);
-    const frac = Math.min(1, v.rpm / v.p.engine.redlineRpm);
-    this.rpmBar.style.width = `${(frac * 100).toFixed(1)}%`;
-    this.rpmBar.classList.toggle('red', frac > 0.92);
-    this.rpmText.textContent = `${Math.round(v.rpm / 50) * 50} rpm`;
+    // 運転席視点ではダッシュボードのメーターが見えるので、画面の計器は出さない
+    this.meter.style.display = cockpit ? 'none' : '';
+    if (!cockpit) this.gauges.draw(v);
     const w = v.wheels.find((x) => x.contact);
-    const flags = [v.airborne ? '空中' : (w ? SURFACES[w.surface.id].name : '')];
-    if (v.p.assists.tcs && v.throttleOut < v.controls.throttle - 0.1 && !v.airborne && v.gear > 0) flags.push('TCS');
-    if (v.wheels.some((x) => x.absFactor < 0.95)) flags.push('ABS');
-    if (v.escActive) flags.push('ESC');
-    this.surface.textContent = flags.filter(Boolean).join('　');
+    this.surface.textContent = v.airborne ? '空中' : (w ? SURFACES[w.surface.id].name : '');
 
     const race = s.race;
     if (race.free) {

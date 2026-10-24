@@ -82,7 +82,9 @@ textarea { resize: vertical; }
 .hud-map { position: absolute; right: 14px; top: 14px; width: 220px; height: 220px; opacity: 0.72; background: rgba(0,0,0,0.28); border-radius: 10px; }
 .hud-message { position: absolute; left: 0; right: 0; top: 34%; text-align: center; font-size: 72px; font-weight: bold; text-shadow: 0 3px 12px rgba(0,0,0,0.6); }
 .hud-help { position: absolute; left: 16px; bottom: 16px; font-size: 13px; line-height: 1.7; background: rgba(0,0,0,0.45); padding: 8px 12px; border-radius: 8px; transition: opacity 1.5s; }
-.hud-meter { position: absolute; right: 18px; bottom: 16px; width: 250px; background: rgba(0,0,0,0.45); border-radius: 10px; padding: 10px 14px; }
+.hud-meter { position: absolute; right: 14px; bottom: 12px; width: 400px; }
+.hud-gauges { width: 100%; display: block; filter: drop-shadow(0 3px 8px rgba(0,0,0,0.5)); }
+.hud-meter .hud-surface { text-align: center; text-shadow: 0 1px 3px #000; }
 .hud-row { display: flex; align-items: baseline; gap: 6px; }
 .hud-speed { font-size: 52px; font-weight: bold; line-height: 1; min-width: 110px; text-align: right; }
 .hud-unit { color: var(--muted); font-size: 14px; }
@@ -134,10 +136,8 @@ body.forced-landscape #stage, body.forced-landscape #overlay { position: absolut
 body.touch .hud-info { font-size: 12px; line-height: 1.45; padding: 6px 10px; min-width: 0; top: calc(env(safe-area-inset-top, 0px) + 8px); left: calc(env(safe-area-inset-left, 0px) + 10px); }
 body.touch .hud-big { font-size: 24px; }
 body.touch .hud-map { width: 130px; height: 130px; top: 8px; right: calc(env(safe-area-inset-right, 0px) + 10px); }
-body.touch .hud-meter { right: auto; left: 50%; bottom: 8px; width: 210px; margin-left: 10px; padding: 6px 10px; }
-body.touch .hud-speed { font-size: 34px; min-width: 70px; }
-body.touch .hud-gear { font-size: 28px; }
-body.touch .hud-wheel { left: 50%; margin-left: -120px; bottom: 8px; width: 88px; }
+body.touch .hud-meter { right: auto; left: 50%; bottom: 4px; width: 280px; margin-left: -96px; }
+body.touch .hud-wheel { left: 50%; margin-left: -200px; bottom: 8px; width: 88px; }
 body.touch .hud-wheel svg { width: 80px; height: 80px; margin: 0 auto; }
 body.touch .hud-help { left: 50%; right: auto; transform: translateX(-50%); bottom: auto; top: 46%; font-size: 13px; max-width: 60%; text-align: center; }
 body.touch .buttons.vertical { flex-direction: row; flex-wrap: wrap; min-width: 0; }
@@ -148,3 +148,8 @@ body.touch #overlay { padding: 8px; }
 body.touch h1 { font-size: 30px; }
 body.touch .lead { font-size: 14px; }
 body.touch .panel.settings-panel { height: calc(100% - 16px); }
+
+/* 手動変速のボタン（スマホ） */
+.shift-buttons { display: none; position: absolute; right: calc(env(safe-area-inset-right, 0px) + 10px); bottom: calc(46% + 18px); gap: 8px; flex-direction: column; }
+body.manual .shift-buttons { display: flex; }
+.shift-buttons button { width: 17vmin; height: 12vmin; font-size: 20px; background: rgba(0,0,0,0.4); }

@@ -92,6 +92,12 @@ export interface CarParams {
     orientation: 'longitudinal' | 'transverse';
     /** 気筒数（エンジン音の高さに使う） */
     cylinders: number;
+    /** 気筒の並び（エンジン音の鼓動に使う） */
+    layout: 'inline' | 'v' | 'flat';
+    /** ターボ（過給の音に使う） */
+    turbo: boolean;
+    /** 排気音の性格 */
+    exhaust: 'quiet' | 'sport' | 'race';
   };
   gearbox: {
     ratios: number[];
@@ -366,6 +372,9 @@ export const FIELDS: FieldDef[] = [
   { path: 'engine.inertia', label: '回転部の慣性', group: 'エンジン', kind: 'number', unit: 'kg·m²', min: 0.03, max: 1.0, step: 0.01 },
   { path: 'engine.engineBrake', label: 'エンジンブレーキ', group: 'エンジン', kind: 'number', unit: 'N·m', min: 0, max: 300, step: 5 },
   { path: 'engine.cylinders', label: '気筒数', group: 'エンジン', kind: 'number', min: 1, max: 16, step: 1 },
+  { path: 'engine.layout', label: '気筒の並び', group: 'エンジン', kind: 'select', options: [{ value: 'inline', label: '直列' }, { value: 'v', label: 'V 型' }, { value: 'flat', label: '水平対向' }] },
+  { path: 'engine.turbo', label: 'ターボ', group: 'エンジン', kind: 'bool' },
+  { path: 'engine.exhaust', label: '排気音', group: 'エンジン', kind: 'select', options: [{ value: 'quiet', label: '静か' }, { value: 'sport', label: 'スポーツ' }, { value: 'race', label: 'レース（戻すとはじける）' }] },
   { path: 'engine.orientation', label: '搭載の向き', group: 'エンジン', kind: 'select', options: [{ value: 'longitudinal', label: '縦置き' }, { value: 'transverse', label: '横置き' }] },
   { path: 'gearbox.ratios', label: 'ギア比（1速から）', group: '変速機', kind: 'list' },
   { path: 'gearbox.reverse', label: '後退のギア比', group: '変速機', kind: 'number', min: 1, max: 6, step: 0.01 },

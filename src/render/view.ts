@@ -5,6 +5,7 @@ import type { CarParams } from '../sim/params';
 import { carGeometry } from '../sim/params';
 import type { Vehicle } from '../sim/vehicle';
 import { isTouch, onLayoutChange, viewSize } from '../ui/layout';
+import { Gauges } from '../ui/gauges';
 import { CarMesh } from './car-mesh';
 import { CourseMesh } from './course-mesh';
 
@@ -29,6 +30,10 @@ export class GameView {
   mode: CameraMode = 'chase';
   showMirror = true;
   private readonly chasePos = new THREE.Vector3();
+  // 運転席のメーター（画面の計器と同じ絵をテクスチャにする）
+  private readonly cluster = new Gauges(512, 240);
+  private readonly clusterTex = new THREE.CanvasTexture(this.cluster.canvas);
+  private clusterMesh: THREE.Group | null = null;
   private chaseInit = false;
 
   // 車庫
@@ -112,6 +117,22 @@ export class GameView {
       this.cars.set(r.vehicle, m);
       this.scene.add(m.group);
     }
+    const pv = s.player?.vehicle;
+    if (pv) {
+      // ハンドルの奥、目の少し下に置く
+      const g = carGeometry(pv.p);
+      const [ex, ey, ez] = g.eye;
+      const grp = new THREE.Group();
+      this.clusterTex.colorSpace = THREE.SRGBColorSpace;
+      const face = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.1875), new THREE.MeshBasicMaterial({ map: this.clusterTex, transparent: true, toneMapped: false }));
+      const hood = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.24, 0.12), new THREE.MeshStandardMaterial({ color: 0x15171b, roughness: 0.9 }));
+      hood.position.z = -0.065;
+      grp.add(hood, face);
+      grp.position.set(ex, ey - 0.17, ez - 0.74);
+      grp.rotation.x = -0.18;
+      this.cars.get(pv)!.group.add(grp);
+      this.clusterMesh = grp;
+    }
     this.chaseInit = false;
   }
 
@@ -119,6 +140,7 @@ export class GameView {
     if (this.courseMesh) { this.scene.remove(this.courseMesh.group); this.courseMesh.dispose(); this.courseMesh = null; }
     for (const m of this.cars.values()) { this.scene.remove(m.group); m.dispose(); }
     this.cars.clear();
+    this.clusterMesh = null;
     this.session = null;
   }
 
@@ -139,7 +161,10 @@ export class GameView {
     const geo = carGeometry(pv.p);
 
     // 運転席視点か後方視点
+    if (this.clusterMesh) this.clusterMesh.visible = this.mode === 'cockpit';
     if (this.mode === 'cockpit') {
+      this.cluster.draw(pv);
+      this.clusterTex.needsUpdate = true;
       this.mainCam.fov = 72;
       this.mainCam.position.set(...geo.eye).applyQuaternion(quat).add(pos);
       this.mainCam.quaternion.copy(quat);

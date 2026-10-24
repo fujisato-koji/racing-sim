@@ -21,6 +21,33 @@ function softClip(amount: number) {
   return c;
 }
 
+/** 車の音の性格（諸元から決める） */
+interface Character {
+  cylinders: number;
+  /** 点火の間隔のずれで生まれる鼓動の周波数（点火の周波数に対する比）と深さ */
+  pulseRatio: number;
+  pulseDepth: number;
+  /** 歪みの強さ、高い音の通しやすさ、大きさ */
+  drive: number;
+  bright: number;
+  level: number;
+}
+
+function character(v: Vehicle): Character {
+  const e = v.p.engine;
+  const layout = e.layout ?? 'inline';
+  const ex = e.exhaust ?? 'sport';
+  return {
+    cylinders: e.cylinders || 4,
+    // 水平対向は 2 回の点火ごと、V 型（クロスプレーン）は 4 回ごとに鼓動する
+    pulseRatio: layout === 'v' ? 0.25 : 0.5,
+    pulseDepth: layout === 'flat' ? 0.6 : layout === 'v' ? 0.5 : 0.12,
+    drive: ex === 'quiet' ? 1.6 : ex === 'sport' ? 2.6 : 4.2,
+    bright: ex === 'quiet' ? 0.65 : ex === 'sport' ? 1.0 : 1.35,
+    level: ex === 'quiet' ? 0.8 : ex === 'sport' ? 1.0 : 1.15,
+  };
+}
+
 class EngineVoice {
   readonly out: GainNode;
   private readonly pan: StereoPannerNode;
@@ -29,7 +56,12 @@ class EngineVoice {
   private readonly rough: GainNode;
   private readonly roughFilter: BiquadFilterNode;
   private readonly filter: BiquadFilterNode;
+  private readonly shaper: WaveShaperNode;
   private readonly src: AudioBufferSourceNode;
+  private readonly pulse: OscillatorNode;
+  private readonly pulseGain: GainNode;
+  private readonly am: GainNode;
+  private ch: Character | null = null;
   vehicle: Vehicle | null = null;
 
   constructor(private readonly ctx: AudioContext, dest: AudioNode, noise: AudioBuffer) {
@@ -39,8 +71,8 @@ class EngineVoice {
     this.filter = ctx.createBiquadFilter();
     this.filter.type = 'lowpass';
     this.filter.Q.value = 2;
-    const shaper = ctx.createWaveShaper();
-    shaper.curve = softClip(2.5);
+    this.shaper = ctx.createWaveShaper();
+    this.shaper.curve = softClip(2.5);
     const sum = ctx.createGain();
     sum.gain.value = 0.5;
     // 点火の周波数の鋸波、その半分の矩形波（低いうなり）、2 倍の鋸波
@@ -61,26 +93,51 @@ class EngineVoice {
     this.rough.gain.value = 0;
     this.src.connect(this.roughFilter).connect(this.rough).connect(sum);
     this.src.start();
-    sum.connect(shaper).connect(this.filter).connect(this.out).connect(this.pan).connect(dest);
+    // 鼓動：音の大きさを点火の周期より遅い周期で揺らす（水平対向の「ドロドロ」、V8 の「ドドド」）
+    this.am = ctx.createGain();
+    this.am.gain.value = 1;
+    this.pulse = ctx.createOscillator();
+    this.pulse.type = 'sine';
+    this.pulseGain = ctx.createGain();
+    this.pulseGain.gain.value = 0;
+    this.pulse.connect(this.pulseGain).connect(this.am.gain);
+    this.pulse.start();
+    sum.connect(this.am).connect(this.shaper).connect(this.filter).connect(this.out).connect(this.pan).connect(dest);
   }
 
-  set(rpm: number, load: number, cylinders: number, gain: number, pan: number) {
+  set(v: Vehicle, gain: number, pan: number) {
+    if (!this.ch || this.vehicle !== v) {
+      this.vehicle = v;
+      this.ch = character(v);
+      this.shaper.curve = softClip(this.ch.drive);
+    }
+    const ch = this.ch, rpm = v.rpm, load = v.throttleOut;
     const t = this.ctx.currentTime, k = 0.03;
-    const f = Math.max(18, ((rpm / 60) * cylinders) / 2);
+    const f = Math.max(18, ((rpm / 60) * ch.cylinders) / 2);
     this.oscs[0].frequency.setTargetAtTime(f, t, k);
     this.oscs[1].frequency.setTargetAtTime(f / 2, t, k);
     this.oscs[2].frequency.setTargetAtTime(f * 2, t, k);
     this.roughFilter.frequency.setTargetAtTime(f * 3, t, k);
     this.rough.gain.setTargetAtTime(0.15 + 0.5 * load, t, k);
-    this.filter.frequency.setTargetAtTime(250 + rpm * 0.22 + load * 2600, t, k);
-    this.out.gain.setTargetAtTime(gain * (0.35 + 0.65 * load), t, 0.05);
+    this.pulse.frequency.setTargetAtTime(f * ch.pulseRatio, t, k);
+    // 鼓動は低い回転ほど目立つ
+    const depth = ch.pulseDepth * (1 - Math.min(0.7, (rpm / v.p.engine.redlineRpm) * 0.7));
+    this.am.gain.setTargetAtTime(1 - depth / 2, t, k);
+    this.pulseGain.gain.setTargetAtTime(depth / 2, t, k);
+    this.filter.frequency.setTargetAtTime((250 + rpm * 0.22 + load * 2600) * ch.bright, t, k);
+    this.out.gain.setTargetAtTime(gain * ch.level * (0.35 + 0.65 * load), t, 0.05);
     this.pan.pan.setTargetAtTime(pan, t, 0.05);
+  }
+
+  silence() {
+    this.out.gain.setTargetAtTime(0, this.ctx.currentTime, 0.05);
   }
 
   stop() {
     this.out.gain.setTargetAtTime(0, this.ctx.currentTime, 0.05);
     const end = this.ctx.currentTime + 0.4;
     for (const o of this.oscs) o.stop(end);
+    this.pulse.stop(end);
     this.src.stop(end);
   }
 }
@@ -133,6 +190,12 @@ export class Sound {
   private crunch: NoiseVoice | null = null;
   private wind: NoiseVoice | null = null;
   private lastImpact = 0;
+  private turbo: OscillatorNode | null = null;
+  private turboGain: GainNode | null = null;
+  private boost = 0;
+  private lastThrottle = 0;
+  private lastBlowoff = 0;
+  private nextPop = 0;
   volume = 0.7;
   muted = false;
 
@@ -161,7 +224,14 @@ export class Sound {
     const ctx = this.ctx, m = this.master, nz = this.noise;
     if (!ctx || !m || !nz) return;
     this.engine = new EngineVoice(ctx, m, nz);
-    this.engine.vehicle = s.player?.vehicle ?? null;
+    // ターボの高い音（過給が上がるほど高く大きく）
+    this.turbo = ctx.createOscillator();
+    this.turbo.type = 'sine';
+    this.turboGain = ctx.createGain();
+    this.turboGain.gain.value = 0;
+    this.turbo.connect(this.turboGain).connect(m);
+    this.turbo.start();
+    this.boost = 0;
     this.others = s.racers.length > 1 ? [0, 1, 2].map(() => new EngineVoice(ctx, m, nz)) : [];
     this.squeal = new NoiseVoice(ctx, m, nz, [{ type: 'bandpass', f: 950, q: 9 }, { type: 'peaking', f: 1900, q: 4 }]);
     this.squeal2 = new NoiseVoice(ctx, m, nz, [{ type: 'bandpass', f: 1400, q: 12 }]);
@@ -171,6 +241,8 @@ export class Sound {
 
   stop() {
     this.engine?.stop();
+    if (this.turbo && this.ctx) { this.turboGain!.gain.setTargetAtTime(0, this.ctx.currentTime, 0.05); this.turbo.stop(this.ctx.currentTime + 0.3); }
+    this.turbo = null; this.turboGain = null;
     for (const o of this.others) o.stop();
     this.squeal?.stop(); this.squeal2?.stop(); this.crunch?.stop(); this.wind?.stop();
     this.engine = null; this.others = []; this.squeal = null; this.squeal2 = null; this.crunch = null; this.wind = null;
@@ -186,7 +258,8 @@ export class Sound {
     const me = s.player?.vehicle;
     if (!me) return;
 
-    this.engine.set(me.rpm, me.throttleOut, me.p.engine.cylinders || 4, cockpit ? 0.55 : 0.45, 0);
+    this.engine.set(me, cockpit ? 0.55 : 0.45, 0);
+    this.updateTurboAndPops(me, ctx.currentTime);
 
     // 近い 3 台のエンジンを左右に振って鳴らす
     const near = s.racers.filter((r) => r.vehicle !== me)
@@ -194,10 +267,10 @@ export class Sound {
       .filter((x) => x.d < 90).sort((a, b) => a.d - b.d).slice(0, this.others.length);
     this.others.forEach((voice, i) => {
       const n = near[i];
-      if (!n) { voice.set(800, 0, 4, 0, 0); return; }
+      if (!n) { voice.silence(); return; }
       const rel = n.v.pos.clone().sub(me.pos);
       const pan = Math.max(-0.85, Math.min(0.85, rel.dot(me.right) / Math.max(4, n.d)));
-      voice.set(n.v.rpm, n.v.throttleOut, n.v.p.engine.cylinders || 4, 0.35 / (1 + n.d / 7), pan);
+      voice.set(n.v, 0.35 / (1 + n.d / 7), pan);
     });
 
     // タイヤ：舗装では鳴き、未舗装では砂利を踏む音
@@ -231,6 +304,54 @@ export class Sound {
       const rel = me.pos.clone().set(best.x - me.pos.x, 0, best.z - me.pos.z);
       const pan = rel.lengthSq() > 1 ? Math.max(-0.8, Math.min(0.8, rel.dot(me.right) / rel.length())) : 0;
       this.impact(bestLevel, best.prop, pan);
+    }
+  }
+
+  /** ターボの音、アクセルを戻したときの「プシュ」、排気がはじける音 */
+  private updateTurboAndPops(v: Vehicle, now: number) {
+    const e = v.p.engine, red = e.redlineRpm;
+    const thr = v.throttleOut;
+    if (e.turbo && this.turbo && this.turboGain) {
+      const target = thr * Math.max(0, Math.min(1, (v.rpm - 0.3 * red) / (0.4 * red)));
+      const tau = target > this.boost ? 0.6 : 0.15;
+      this.boost += (target - this.boost) * Math.min(1, 1 / 60 / tau);
+      this.turbo.frequency.setTargetAtTime(2400 + 4200 * this.boost, now, 0.05);
+      this.turboGain.gain.setTargetAtTime(0.05 * this.boost * this.boost, now, 0.05);
+      if (this.lastThrottle > 0.6 && thr < 0.15 && this.boost > 0.45 && now - this.lastBlowoff > 1) {
+        this.lastBlowoff = now;
+        this.burst(0.28 * this.boost, 0.35, 2600, 'bandpass', 1.4);
+      }
+    }
+    // 排気音が「レース」の車は、高回転でアクセルを戻すと排気がはじける
+    if (e.exhaust === 'race' && thr < 0.05 && v.rpm > 0.55 * red && v.shifting <= 0 && now > this.nextPop) {
+      this.nextPop = now + 0.06 + Math.random() * 0.22;
+      this.burst(0.35 + Math.random() * 0.3, 0.06, 900 + Math.random() * 600, 'lowpass', 0.8, true);
+    }
+    this.lastThrottle = thr;
+  }
+
+  private burst(level: number, dur: number, freq: number, type: BiquadFilterType, q: number, thump = false) {
+    const ctx = this.ctx!, t = ctx.currentTime;
+    const src = ctx.createBufferSource();
+    src.buffer = this.noise!;
+    const f = ctx.createBiquadFilter();
+    f.type = type; f.frequency.value = freq; f.Q.value = q;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(level, t + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    src.connect(f).connect(g).connect(this.master!);
+    src.start(t, Math.random() * 1.5, dur + 0.05);
+    if (thump) {
+      const o = ctx.createOscillator();
+      o.frequency.setValueAtTime(120, t);
+      o.frequency.exponentialRampToValueAtTime(50, t + 0.08);
+      const og = ctx.createGain();
+      og.gain.setValueAtTime(level * 0.8, t);
+      og.gain.exponentialRampToValueAtTime(0.001, t + 0.09);
+      o.connect(og).connect(this.master!);
+      o.start(t);
+      o.stop(t + 0.1);
     }
   }
 

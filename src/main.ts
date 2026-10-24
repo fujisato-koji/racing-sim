@@ -2,6 +2,7 @@
 import RAPIER from '@dimforge/rapier3d-compat';
 import './style.css';
 import { Sound } from './audio/sound';
+import { GamepadInput } from './game/gamepad';
 import { KeyboardInput } from './game/input';
 import { TouchControls } from './game/touch';
 import { Session } from './game/session';
@@ -17,9 +18,9 @@ import { buildSettingsForm, renderDerived } from './ui/settings';
 import { exportCar, importCar, loadCustomCars, saveCustomCars } from './ui/storage';
 
 const PREFS = 'racing-sim.prefs.v1';
-interface Prefs { volume: number; muted: boolean; tiltRange: number }
+interface Prefs { volume: number; muted: boolean; tiltRange: number; centerSoft: number; manual: boolean }
 function loadPrefs(): Prefs {
-  const d: Prefs = { volume: 0.7, muted: false, tiltRange: 45 };
+  const d: Prefs = { volume: 0.7, muted: false, tiltRange: 40, centerSoft: 1, manual: false };
   try { return { ...d, ...(JSON.parse(localStorage.getItem(PREFS) ?? '{}') as Partial<Prefs>) }; } catch { return d; }
 }
 function savePrefs(p: Prefs) {
@@ -34,6 +35,7 @@ class App {
   private readonly overlay: HTMLDivElement;
   private readonly input = new KeyboardInput();
   private readonly touch: TouchControls;
+  private readonly pad = new GamepadInput();
   private readonly sound = new Sound();
   private readonly prefs = loadPrefs();
   private session: Session | null = null;
@@ -52,7 +54,8 @@ class App {
     this.hud = new Hud(stage);
     this.hud.visible = false;
     this.touch = new TouchControls(stage);
-    this.touch.range = this.prefs.tiltRange;
+    this.touch.tiltSteer.opt.range = this.prefs.tiltRange;
+    this.touch.tiltSteer.opt.centerSoft = this.prefs.centerSoft;
     this.sound.volume = this.prefs.volume;
     this.sound.muted = this.prefs.muted;
     this.touch.setMuted(this.prefs.muted);
@@ -66,9 +69,13 @@ class App {
       if (a === 'reset' && this.session.player && !this.session.paused) this.session.respawn(this.session.player);
       if (a === 'pause') this.togglePause();
       if (a === 'center') this.touch.calibrate();
+      if (a === 'shiftUp' && !this.session.paused) this.session.player?.vehicle.requestShift(1);
+      if (a === 'shiftDown' && !this.session.paused) this.session.player?.vehicle.requestShift(-1);
     };
     this.input.onAction = act;
     this.touch.onAction = act;
+    this.pad.onAction = act;
+    document.body.classList.toggle('manual', this.prefs.manual);
     // 最初のタップやクリックで音を出せるようにする
     const unlock = () => this.sound.unlock();
     window.addEventListener('pointerdown', unlock);
@@ -84,6 +91,7 @@ class App {
     const dt = Math.min(0.1, (now - this.last) / 1000);
     this.last = now;
     const s = this.session;
+    this.pad.poll();
     if (s) {
       s.update(dt);
       this.view.render(dt);
@@ -114,10 +122,12 @@ class App {
     const el = this.screen(`
       <h1>racing-sim</h1>
       <p class="lead">タイヤの摩擦、サスペンション、エンジンから車輪までの駆動系、空気抵抗を計算して走る車のレース。</p>
+      ${this.prefsHtml()}
       <div class="buttons"><button class="primary" data-go>はじめる</button></div>
       <p class="note">${isTouch
         ? 'スマホは横向きに持ち、ハンドルのように左右へ回して切る。右下がアクセル、左下がブレーキ。変速は自動。'
-        : '操作はキーボード。← → ハンドル、↑ アクセル、↓ ブレーキ。変速は自動。'}</p>`);
+        : '操作はキーボードかゲームパッド。← → ハンドル、↑ アクセル、↓ ブレーキ。手動変速は E で上げ Q で下げる。'}</p>`);
+    this.bindPrefs(el);
     this.on(el, '[data-go]', () => {
       // 音、傾きセンサー、全画面と横向きの固定は、利用者のタップの中でしか始められない
       this.sound.unlock();
@@ -271,9 +281,11 @@ class App {
       this.session = new Session(RAPIER, { course: this.course, player: cloneParams(this.car), opponents, laps: this.laps },
         (dt, v) => {
           // キーボードとスマホのどちらでも。キーでハンドルを切っているときはキーを優先
-          const k = this.input.update(dt, v.speed), t = this.touch.update(dt);
-          return { steer: Math.abs(k.steer) > 0.01 ? k.steer : t.steer, throttle: Math.max(k.throttle, t.throttle), brake: Math.max(k.brake, t.brake) };
+          const k = this.input.update(dt, v.speed), t = this.touch.update(dt, v.speed), g = this.pad;
+          const steer = Math.abs(k.steer) > 0.01 ? k.steer : g.active && Math.abs(g.steer) > 0 ? g.steer : t.steer;
+          return { steer, throttle: Math.max(k.throttle, t.throttle, g.throttle), brake: Math.max(k.brake, t.brake, g.brake) };
         });
+      if (this.session.player) this.session.player.vehicle.manual = this.prefs.manual;
       this.view.setSession(this.session);
       this.hud.setCourse(this.session.course);
       this.hud.visible = true;
@@ -312,20 +324,37 @@ class App {
     return `<div class="prefs">
       <label class="field"><span class="field-name">音量</span><input type="range" min="0" max="1" step="0.05" value="${this.prefs.volume}" data-volume><span class="field-unit"></span></label>
       <label class="field"><span class="field-name">音を消す</span><input type="checkbox" ${this.prefs.muted ? 'checked' : ''} data-mute><span></span></label>
-      ${isTouch ? `<label class="field"><span class="field-name">いっぱいに切る傾き</span><input type="range" min="15" max="90" step="5" value="${this.prefs.tiltRange}" data-tilt><span class="field-unit" data-tilt-text>${this.prefs.tiltRange}°</span></label>` : ''}
+      <label class="field"><span class="field-name">変速</span><select data-trans><option value="auto" ${this.prefs.manual ? '' : 'selected'}>自動</option><option value="manual" ${this.prefs.manual ? 'selected' : ''}>手動（E/Q、RB/LB、画面の ▲▼）</option></select><span></span></label>
+      ${isTouch ? `<label class="field"><span class="field-name">いっぱいに切る傾き</span><input type="range" min="15" max="90" step="5" value="${this.prefs.tiltRange}" data-tilt><span class="field-unit" data-tilt-text>${this.prefs.tiltRange}°</span></label>
+      <label class="field"><span class="field-name">中央付近の鈍さ（遊び）</span><input type="range" min="0" max="1" step="0.05" value="${this.prefs.centerSoft}" data-soft><span class="field-unit" data-soft-text>${Math.round(this.prefs.centerSoft * 100)}%</span></label>` : ''}
     </div>`;
   }
 
   private bindPrefs(el: HTMLElement) {
     const vol = el.querySelector('[data-volume]') as HTMLInputElement | null;
     vol?.addEventListener('input', () => { this.prefs.volume = Number(vol.value); this.sound.volume = this.prefs.volume; savePrefs(this.prefs); });
+    const trans = el.querySelector('[data-trans]') as HTMLSelectElement | null;
+    trans?.addEventListener('change', () => {
+      this.prefs.manual = trans.value === 'manual';
+      document.body.classList.toggle('manual', this.prefs.manual);
+      if (this.session?.player) this.session.player.vehicle.manual = this.prefs.manual;
+      savePrefs(this.prefs);
+    });
     const mute = el.querySelector('[data-mute]') as HTMLInputElement | null;
     mute?.addEventListener('change', () => this.setMuted(mute.checked));
     const tilt = el.querySelector('[data-tilt]') as HTMLInputElement | null;
     tilt?.addEventListener('input', () => {
       this.prefs.tiltRange = Number(tilt.value);
-      this.touch.range = this.prefs.tiltRange;
+      this.touch.tiltSteer.opt.range = this.prefs.tiltRange;
+    this.touch.tiltSteer.opt.centerSoft = this.prefs.centerSoft;
       (el.querySelector('[data-tilt-text]') as HTMLElement).textContent = `${tilt.value}°`;
+      savePrefs(this.prefs);
+    });
+    const soft = el.querySelector('[data-soft]') as HTMLInputElement | null;
+    soft?.addEventListener('input', () => {
+      this.prefs.centerSoft = Number(soft.value);
+      this.touch.tiltSteer.opt.centerSoft = this.prefs.centerSoft;
+      (el.querySelector('[data-soft-text]') as HTMLElement).textContent = `${Math.round(this.prefs.centerSoft * 100)}%`;
       savePrefs(this.prefs);
     });
   }

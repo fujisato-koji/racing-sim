@@ -1,10 +1,11 @@
 // スマホの操作。スマホをハンドルのように回して切り、画面のペダルでアクセルとブレーキ。
 // 傾きは、重力の向きを画面の面に写した角度で測る（画面を手前に倒して持っても効く）。
 import type { Controls } from '../sim/vehicle';
+import { TiltSteering } from './tilt';
 
 const DEG = Math.PI / 180;
 
-export type TouchAction = 'camera' | 'reset' | 'pause' | 'center' | 'sound';
+export type TouchAction = 'camera' | 'reset' | 'pause' | 'center' | 'sound' | 'shiftUp' | 'shiftDown';
 
 function wrap(a: number) {
   while (a > Math.PI) a -= 2 * Math.PI;
@@ -14,14 +15,12 @@ function wrap(a: number) {
 
 export class TouchControls {
   readonly root: HTMLDivElement;
-  /** いっぱいに切ったことになるスマホの傾き [度] */
-  range = 45;
+  readonly tiltSteer = new TiltSteering();
   onAction: (a: TouchAction) => void = () => {};
   private raw: number | null = null;
   private center: number | null = null;
   private wantCenter = true;
   private tiltSeen = false;
-  private filtered = 0;
   private throttleOn = false;
   private brakeOn = false;
   private leftOn = false;
@@ -39,6 +38,10 @@ export class TouchControls {
         <button data-a="reset">戻す</button>
         <button data-a="center">中央</button>
         <button data-a="sound" class="sound">音</button>
+      </div>
+      <div class="shift-buttons">
+        <button data-a="shiftUp" aria-label="シフトアップ">▲</button>
+        <button data-a="shiftDown" aria-label="シフトダウン">▼</button>
       </div>
       <div class="pedal brake" data-p="brake"><span>ブレーキ</span></div>
       <div class="pedal throttle" data-p="throttle"><span>アクセル</span></div>
@@ -111,24 +114,21 @@ export class TouchControls {
       this.root.classList.add('has-tilt');
     }
     if (this.wantCenter) { this.center = this.raw; this.wantCenter = false; }
+    this.tiltSteer.push(wrap(this.raw - (this.center ?? this.raw)) / DEG, e.timeStamp / 1000);
   }
 
   /** 今の持ち方を中央にする */
   calibrate() {
     if (this.raw !== null) { this.center = this.raw; this.wantCenter = false; }
     else this.wantCenter = true;
+    this.tiltSteer.reset();
   }
 
   /** 物理の 1 ステップごとに呼ぶ */
-  update(dt: number): Controls {
+  update(dt: number, speed = 0): Controls {
     const c = this.c;
     if (this.tiltSeen && this.raw !== null && this.center !== null) {
-      const a = wrap(this.raw - this.center) / DEG;
-      const dead = 1.5;
-      const x = Math.sign(a) * Math.max(0, Math.abs(a) - dead) / (this.range - dead);
-      const target = Math.max(-1, Math.min(1, x));
-      this.filtered += (target - this.filtered) * Math.min(1, dt / 0.05);
-      c.steer = this.filtered;
+      c.steer = this.tiltSteer.steer(speed * 3.6);
     } else {
       const target = this.leftOn === this.rightOn ? 0 : this.rightOn ? 1 : -1;
       const rate = target === 0 ? 6 : 2.5;
@@ -146,7 +146,7 @@ export class TouchControls {
 
   reset() {
     this.c.steer = 0; this.c.throttle = 0; this.c.brake = 0;
-    this.filtered = 0;
+    this.tiltSteer.reset();
     this.wantCenter = true;
     if (this.raw !== null) this.calibrate();
   }
