@@ -194,17 +194,18 @@ export class GameView {
     }
     const pv = s.player?.vehicle;
     if (pv) {
-      // ハンドルの奥、目の少し下に置く
+      // ハンドルの奥、計器盤の上に低く置く（前の景色をふさがないよう、目線から 20° ほど下に見える高さ）
       const g = carGeometry(pv.p);
-      const [ex, ey, ez] = g.eye;
+      const [ex, , ez] = g.eye;
       const grp = new THREE.Group();
       this.clusterTex.colorSpace = THREE.SRGBColorSpace;
-      const face = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.1875), new THREE.MeshBasicMaterial({ map: this.clusterTex, transparent: true, toneMapped: false }));
-      const hood = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.24, 0.12), new THREE.MeshStandardMaterial({ color: 0x15171b, roughness: 0.9 }));
-      hood.position.z = -0.065;
+      const face = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.14), new THREE.MeshBasicMaterial({ map: this.clusterTex, transparent: true, toneMapped: false }));
+      const hood = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.16, 0.05), new THREE.MeshStandardMaterial({ color: 0x15171b, roughness: 0.9 }));
+      hood.position.z = -0.03;
       grp.add(hood, face);
-      grp.position.set(ex, ey - 0.17, ez - 0.74);
-      grp.rotation.x = -0.18;
+      grp.position.set(ex, g.beltY + 0.13, ez - 0.5);
+      // 運転席の目のほうへ向ける
+      grp.rotation.x = -0.38;
       this.cars.get(pv)!.group.add(grp);
       this.clusterMesh = grp;
     }
