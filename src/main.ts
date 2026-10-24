@@ -5,6 +5,7 @@ import { Sound } from './audio/sound';
 import type { VoiceMode } from './audio/voice';
 import { Voice } from './audio/voice';
 import { Commentator } from './game/commentary';
+import { CoDriver } from './game/codriver';
 import { GamepadInput } from './game/gamepad';
 import { KeyboardInput } from './game/input';
 import { TouchControls } from './game/touch';
@@ -67,9 +68,9 @@ function drawThumb(cv: HTMLCanvasElement, c: CourseDef, color = '#e8ecf2') {
 }
 
 const PREFS = 'racing-sim.prefs.v1';
-interface Prefs { volume: number; muted: boolean; tiltRange: number; centerSoft: number; manual: boolean; quality: QualityPref; keySteer: number; voice: VoiceMode; duck: number }
+interface Prefs { volume: number; muted: boolean; tiltRange: number; centerSoft: number; manual: boolean; quality: QualityPref; keySteer: number; voice: VoiceMode; duck: number; codriver: boolean }
 function loadPrefs(): Prefs {
-  const d: Prefs = { volume: 0.7, muted: false, tiltRange: 40, centerSoft: 1, manual: false, quality: 'auto', keySteer: 1, voice: 'all', duck: 0.4 };
+  const d: Prefs = { volume: 0.7, muted: false, tiltRange: 40, centerSoft: 1, manual: false, quality: 'auto', keySteer: 1, voice: 'all', duck: 0.4, codriver: true };
   try { return { ...d, ...(JSON.parse(localStorage.getItem(PREFS) ?? '{}') as Partial<Prefs>) }; } catch { return d; }
 }
 function savePrefs(p: Prefs) {
@@ -108,6 +109,7 @@ class App {
   /** 読み上げ（メニューと実況） */
   private readonly voice = new Voice();
   private commentator: Commentator | null = null;
+  private codriver: CoDriver | null = null;
   private readonly prefs = loadPrefs();
   private session: Session | null = null;
   private course: CourseDef = COURSES[1];
@@ -135,6 +137,7 @@ class App {
     this.voice.volume = this.prefs.volume;
     this.voice.muted = this.prefs.muted;
     this.voice.mode = this.prefs.voice;
+    this.voice.codriverOn = this.prefs.codriver;
     this.touch.setMuted(this.prefs.muted);
     this.overlay = overlay;
     const act = (a: string) => {
@@ -227,7 +230,7 @@ class App {
     this.pad.poll();
     if (s) {
       s.update(dt);
-      if (!s.paused && !this.resultsShown) this.commentator?.update(dt);
+      if (!s.paused && !this.resultsShown) { this.commentator?.update(dt); this.codriver?.update(); }
       this.view.render(dt);
       this.hud.update(s, dt, this.view.mode === 'cockpit');
       if (s.race.state === 'finished' && !this.resultsShown) {
@@ -726,6 +729,7 @@ class App {
       // 実況（メニューだけを読む設定なら、走り出す一言だけ）
       this.voice.stop();
       this.commentator = new Commentator(this.session, (t, p) => this.voice.call(t, p), Math.floor(Math.random() * 1000) + 1);
+      this.codriver = new CoDriver(this.session, (t, p) => this.voice.codriver(t, p));
       if (this.voice.mode === 'menu') this.voice.menu(`Let's go racing at ${this.course.name}!`);
       this.finishedAt = -1;
       this.resultsShown = false;
@@ -773,6 +777,7 @@ class App {
       <label class="field"><span class="field-name">Mute</span><input type="checkbox" ${this.prefs.muted ? 'checked' : ''} data-mute><span></span></label>
       <label class="field"><span class="field-name">Graphics</span><select data-quality>${(['auto', 'low', 'medium', 'high'] as const).map((q) => `<option value="${q}" ${this.prefs.quality === q ? 'selected' : ''}>${{ auto: 'Auto (lowers resolution when slow)', low: 'Low', medium: 'Medium', high: 'High' }[q]}</option>`).join('')}</select><span></span></label>
       <label class="field"><span class="field-name">Voice</span><select data-voice>${(['all', 'menu', 'off'] as const).map((v) => `<option value="${v}" ${this.prefs.voice === v ? 'selected' : ''}>${{ all: 'Menus and race commentary', menu: 'Menus only', off: 'Off' }[v]}</option>`).join('')}</select><span></span></label>
+      <label class="field"><span class="field-name">Co-driver calls (corners ahead)</span><input type="checkbox" ${this.prefs.codriver ? 'checked' : ''} data-codriver><span></span></label>
       <label class="field"><span class="field-name">Game sound while the voice speaks</span><input type="range" min="0.1" max="1" step="0.05" value="${this.prefs.duck}" data-duck><span class="field-unit" data-duck-text>${Math.round(this.prefs.duck * 100)}%</span></label>
       <label class="field"><span class="field-name">Transmission</span><select data-trans><option value="auto" ${this.prefs.manual ? '' : 'selected'}>Automatic</option><option value="manual" ${this.prefs.manual ? 'selected' : ''}>Manual (E/Q, RB/LB, on-screen ▲▼)</option></select><span></span></label>
       ${isTouch ? '' : `<label class="field"><span class="field-name">Keyboard steering speed</span><input type="range" min="0.5" max="2" step="0.1" value="${this.prefs.keySteer}" data-keysteer><span class="field-unit" data-keysteer-text>${Math.round(this.prefs.keySteer * 100)}%</span></label>`}
@@ -798,6 +803,13 @@ class App {
       this.prefs.keySteer = Number(ks.value);
       this.input.sensitivity = this.prefs.keySteer;
       (el.querySelector('[data-keysteer-text]') as HTMLElement).textContent = `${Math.round(this.prefs.keySteer * 100)}%`;
+      savePrefs(this.prefs);
+    });
+    const cd = el.querySelector('[data-codriver]') as HTMLInputElement | null;
+    cd?.addEventListener('change', () => {
+      this.prefs.codriver = cd.checked;
+      this.voice.codriverOn = cd.checked;
+      if (cd.checked) this.voice.codriver('Co-driver on.', 3.5);
       savePrefs(this.prefs);
     });
     const dk = el.querySelector('[data-duck]') as HTMLInputElement | null;
@@ -852,6 +864,7 @@ class App {
     this.sound.stop();
     this.voice.stop();
     this.commentator = null;
+    this.codriver = null;
     this.touch.visible = false;
     this.view.clearSession();
     this.session?.dispose();
