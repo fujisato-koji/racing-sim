@@ -153,3 +153,6 @@ body.touch .panel.settings-panel { height: calc(100% - 16px); }
 .shift-buttons { display: none; position: absolute; right: calc(env(safe-area-inset-right, 0px) + 10px); bottom: calc(46% + 18px); gap: 8px; flex-direction: column; }
 body.manual .shift-buttons { display: flex; }
 .shift-buttons button { width: 17vmin; height: 12vmin; font-size: 20px; background: rgba(0,0,0,0.4); }
+
+.hud-notice { position: absolute; left: 50%; top: 24%; transform: translateX(-50%); background: rgba(0,0,0,0.6); padding: 8px 16px; border-radius: 8px; font-size: 15px; white-space: nowrap; }
+body.touch .hud-notice { font-size: 13px; top: 30%; }

@@ -31,6 +31,8 @@ export class Session {
   /** 描画の補間に使う、最後のステップからの経過の割合 */
   alpha = 0;
   paused = false;
+  /** 画面に出す短い知らせ（文と、いつまで出すか） */
+  notice: { text: string; until: number } | null = null;
 
   constructor(R: Rapier, readonly cfg: SessionConfig, readonly playerInput: (dt: number, v: Vehicle) => Controls) {
     this.pw = new PhysicsWorld(R);
@@ -92,9 +94,21 @@ export class Session {
       r.offTrack = d > this.course.width / 2 + 25 ? r.offTrack + dt : 0;
       r.ai.stuckTime = Math.abs(v.speed) < 1.5 ? r.ai.stuckTime + dt : 0;
       if (r.upsideDown > 2 || r.offTrack > 3 || r.ai.stuckTime > 4) this.respawn(r);
-    } else if (r.isPlayer && r.upsideDown > 4) {
-      this.respawn(r);
+    } else if (r.isPlayer) {
+      // アクセルかブレーキを踏んでいるのに動けない（障害物に挟まった、砂にはまった）
+      const trying = v.controls.throttle > 0.3 || v.controls.brake > 0.3;
+      const still = Math.abs(v.speed) < 1 && v.linvel.length() < 1.2;
+      r.stuck = trying && still && !this.paused && this.race.state !== 'countdown' ? r.stuck + dt : 0;
+      if (r.stuck > 1.5 && r.stuck - dt <= 1.5) this.say('動けないときは R（スマホは「戻す」）でコースに戻せます', 3);
+      if (r.upsideDown > 4 || r.stuck > 4) {
+        this.respawn(r);
+        this.say('動けないのでコースに戻しました', 2.5);
+      }
     }
+  }
+
+  say(text: string, seconds: number) {
+    this.notice = { text, until: this.pw.time + seconds };
   }
 
   /** 経路の近くの、少し手前に置き直す */
@@ -106,13 +120,22 @@ export class Session {
       v.place(g.x, g.y, g.z, g.yaw);
     } else {
       const n = path.length;
-      const i = (this.race.free ? this.nearestIndex(v) : r.idx) - 8;
-      const p = path[(i + n) % n];
+      let i = (this.race.free ? this.nearestIndex(v) : r.idx) - 8;
+      // 戻す先に他の車がいたら、さらに手前へ
+      for (let tries = 0; tries < 4; tries++) {
+        const p = path[((i % n) + n) % n];
+        const busy = this.pw.vehicles.some((o) => o !== v && (o.pos.x - p.x) ** 2 + (o.pos.z - p.z) ** 2 < 49);
+        if (!busy) break;
+        i -= 10;
+      }
+      const k = ((i % n) + n) % n;
+      const p = path[k];
       v.place(p.x, p.y, p.z, yawFromDir(p.tx, p.tz));
-      if (r.ai) { r.ai.idx = (i + n) % n; r.ai.stuckTime = 0; }
+      if (r.ai) { r.ai.idx = k; r.ai.stuckTime = 0; }
     }
     r.upsideDown = 0;
     r.offTrack = 0;
+    r.stuck = 0;
   }
 
   private nearestIndex(v: Vehicle) {

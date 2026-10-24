@@ -19,6 +19,7 @@ export class Hud {
   private readonly info: HTMLElement;
   private readonly surface: HTMLElement;
   private readonly message: HTMLElement;
+  private readonly notice: HTMLElement;
   private readonly help: HTMLElement;
   private readonly map: HTMLCanvasElement;
   private readonly wheel: HTMLElement;
@@ -38,6 +39,7 @@ export class Hud {
       <div class="hud-info"></div>
       <canvas class="hud-map" width="440" height="440"></canvas>
       <div class="hud-message"></div>
+      <div class="hud-notice" style="display:none"></div>
       <div class="hud-help">${isTouch
         ? 'スマホを左右に回してハンドル　右下アクセル　左下ブレーキ（止まって押し続けると後退）'
         : '← → ハンドル　↑ アクセル　↓ ブレーキ（止まって押し続けると後退）　E/Q 手動変速<br>C 視点　M ミラー　N 地図　R 戻す　V 音　Esc 一時停止'}</div>
@@ -56,6 +58,7 @@ export class Hud {
     this.info = q('.hud-info');
     this.surface = q('.hud-surface');
     this.message = q('.hud-message');
+    this.notice = q('.hud-notice');
     this.help = q('.hud-help');
     this.map = q('.hud-map') as HTMLCanvasElement;
     this.wheel = q('.hud-wheel');
@@ -150,6 +153,9 @@ export class Hud {
     if (race.state === 'finished') msg = 'ゴール！';
     if (s.paused) msg = '一時停止';
     this.message.textContent = msg;
+    const n = s.notice && s.notice.until > s.pw.time ? s.notice.text : '';
+    this.notice.textContent = n;
+    this.notice.style.display = n ? '' : 'none';
 
     this.helpTime += dt;
     if (this.helpTime > 10) this.help.style.opacity = '0';

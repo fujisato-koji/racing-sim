@@ -20,6 +20,8 @@ export interface Racer {
   finishTime: number;
   offTrack: number;
   upsideDown: number;
+  /** アクセルかブレーキを踏んでいるのに動けない時間 [s] */
+  stuck: number;
 }
 
 export type RaceState = 'countdown' | 'running' | 'finished';
@@ -108,5 +110,5 @@ export class Race {
 }
 
 export function makeRacer(name: string, color: string, vehicle: Vehicle, isPlayer: boolean, ai: AiDriver | null): Racer {
-  return { name, color, vehicle, isPlayer, ai, idx: 0, laps: 0, checkpoints: 0, lapStart: 0, lastLap: NaN, bestLap: Infinity, finished: false, finishTime: NaN, offTrack: 0, upsideDown: 0 };
+  return { name, color, vehicle, isPlayer, ai, idx: 0, laps: 0, checkpoints: 0, lapStart: 0, lastLap: NaN, bestLap: Infinity, finished: false, finishTime: NaN, offTrack: 0, upsideDown: 0, stuck: 0 };
 }
