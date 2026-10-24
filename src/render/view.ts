@@ -61,6 +61,8 @@ export class GameView {
   private readonly garageCam = new THREE.PerspectiveCamera(35, 1, 0.1, 100);
   private garageCar: CarMesh | null = null;
   private garageAngle = 0;
+  private garageRing: THREE.MeshBasicMaterial | null = null;
+  private garageTime = 0;
   // コースを選ぶ画面の地球儀
   private globe: Globe | null = null;
   private globeOn = false;
@@ -110,18 +112,71 @@ export class GameView {
     this.mirrorQuad = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: this.mirrorTarget.texture, side: THREE.DoubleSide }));
     this.hudScene.add(this.mirrorFrame, this.mirrorQuad);
 
-    // 車庫
-    this.garage.background = new THREE.Color(0x20242b);
-    this.garage.add(new THREE.HemisphereLight(0xdde8ff, 0x303030, 1.4));
-    const key = new THREE.DirectionalLight(0xffffff, 2.5);
-    key.position.set(4, 6, 3);
-    key.castShadow = true;
-    key.shadow.mapSize.set(1024, 1024);
-    this.garage.add(key);
-    const floor = new THREE.Mesh(new THREE.CircleGeometry(14, 64), new THREE.MeshStandardMaterial({ color: 0x3a3f47, roughness: 0.7 }));
-    floor.rotation.x = -Math.PI / 2;
-    floor.receiveShadow = true;
-    this.garage.add(floor);
+    // 車庫（ショールーム）：暗い部屋、光る輪の回転台、床の光だまり、上からの照明と、青と橙の縁の光
+    {
+      const g = this.garage;
+      g.background = new THREE.Color(0x05080e);
+      g.fog = new THREE.Fog(0x05080e, 14, 34);
+      // 奥の壁：上が暗く、床の近くが少し明るい
+      const wall = new THREE.Mesh(new THREE.SphereGeometry(40, 48, 24), new THREE.ShaderMaterial({
+        side: THREE.BackSide, depthWrite: false, fog: false,
+        vertexShader: 'varying vec3 vP; void main() { vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+        fragmentShader: `varying vec3 vP; void main() {
+          float h = normalize(vP).y;
+          vec3 c = mix(vec3(0.016, 0.03, 0.055), vec3(0.004, 0.006, 0.012), smoothstep(-0.05, 0.5, h));
+          c += vec3(0.05, 0.03, 0.01) * exp(-abs(h) * 14.0);
+          gl_FragColor = vec4(c, 1.0);
+          #include <colorspace_fragment>
+        }`,
+      }));
+      g.add(wall);
+      g.add(new THREE.HemisphereLight(0x9fbfff, 0x101418, 0.55));
+      const key = new THREE.SpotLight(0xfff4e6, 70, 30, 0.6, 0.7, 1.2);
+      key.position.set(2.5, 8, 4.5);
+      key.castShadow = true;
+      key.shadow.mapSize.set(1024, 1024);
+      key.shadow.bias = -0.0005;
+      g.add(key, key.target);
+      const rimBlue = new THREE.DirectionalLight(0x4aa8ff, 2.2);
+      rimBlue.position.set(-6, 3, -5);
+      const rimOrange = new THREE.DirectionalLight(0xff9a3a, 1.8);
+      rimOrange.position.set(6, 2.5, -4);
+      g.add(rimBlue, rimOrange);
+      // 床：暗く、つやを抑えた床（後ろの縁の光が床で照り返さないように）
+      const floor = new THREE.Mesh(new THREE.CircleGeometry(30, 96), new THREE.MeshStandardMaterial({ color: 0x0c1017, roughness: 0.95, metalness: 0, envMapIntensity: 0.05 }));
+      floor.rotation.x = -Math.PI / 2;
+      floor.receiveShadow = true;
+      g.add(floor);
+      // 回転台と光る輪
+      const table = new THREE.Mesh(new THREE.CylinderGeometry(3.6, 3.7, 0.06, 96), new THREE.MeshStandardMaterial({ color: 0x151b25, roughness: 0.75, metalness: 0.1, envMapIntensity: 0.1 }));
+      table.position.y = -0.03;
+      table.receiveShadow = true;
+      g.add(table);
+      const ringMat = new THREE.MeshBasicMaterial({ color: 0xffb000, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false });
+      const ring = new THREE.Mesh(new THREE.RingGeometry(3.62, 3.72, 128), ringMat);
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.y = 0.012;
+      g.add(ring);
+      // 床の光だまり（真ん中が明るく外へ消える）
+      const pc = document.createElement('canvas');
+      pc.width = pc.height = 256;
+      const px = pc.getContext('2d')!;
+      const rg = px.createRadialGradient(128, 128, 0, 128, 128, 128);
+      rg.addColorStop(0, 'rgba(90,140,230,0.22)'); rg.addColorStop(0.5, 'rgba(50,90,170,0.08)'); rg.addColorStop(1, 'rgba(0,0,0,0)');
+      px.fillStyle = rg; px.fillRect(0, 0, 256, 256);
+      const pool = new THREE.Mesh(new THREE.PlaneGeometry(16, 16), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(pc), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+      pool.rotation.x = -Math.PI / 2;
+      pool.position.y = 0.006;
+      g.add(pool);
+      // 床の細い同心円
+      for (const r of [5.5, 8, 11]) {
+        const m = new THREE.Mesh(new THREE.RingGeometry(r, r + 0.02, 160), new THREE.MeshBasicMaterial({ color: 0x3a6fb8, transparent: true, opacity: 0.25, depthWrite: false }));
+        m.rotation.x = -Math.PI / 2;
+        m.position.y = 0.004;
+        g.add(m);
+      }
+      this.garageRing = ringMat;
+    }
 
     onLayoutChange(() => this.resize());
     this.resize();
@@ -395,12 +450,14 @@ export class GameView {
   renderGarage(dt: number) {
     if (this.globeOn && this.globe) { this.globe.render(this.renderer, dt); return; }
     this.garageAngle += dt * 0.35;
+    this.garageTime += dt;
+    if (this.garageRing) this.garageRing.opacity = 0.65 + 0.3 * Math.sin(this.garageTime * 2.2);
     if (this.garageCar) this.garageCar.group.rotation.y = this.garageAngle;
     const L = this.garageCar?.p.body.length ?? 4.3;
     const D = L * 2.3;
-    this.garageCam.position.set(Math.sin(0.6) * D, L * 0.55, Math.cos(0.6) * D);
-    // メニューは左に出るので、車は右半分に見せる
-    this.garageCam.lookAt(-L * 0.55, 0.35, L * 0.2);
+    this.garageCam.position.set(Math.sin(0.6) * D, L * 0.36, Math.cos(0.6) * D);
+    // メニューは左に出るので、車は右半分に見せる。低めから見上げて大きく見せる
+    this.garageCam.lookAt(-L * 0.62, 0.5, L * 0.15);
     const r = this.renderer;
     r.shadowMap.needsUpdate = true;
     r.setRenderTarget(null);

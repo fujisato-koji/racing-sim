@@ -15,6 +15,7 @@ import type { CarParams } from './sim/params';
 import { cloneParams, computeDerived } from './sim/params';
 import { CAR_PRESETS } from './sim/presets';
 import { Hud, formatTime } from './ui/hud';
+import { logoSvg } from './ui/logo';
 import { initLayout, isTouch, requestLandscape, viewSize } from './ui/layout';
 import type { Globe } from './render/globe';
 import { loadScenery } from './render/scenery';
@@ -72,6 +73,22 @@ function savePrefs(p: Prefs) {
   try { localStorage.setItem(PREFS, JSON.stringify(p)); } catch { /* 保存できなくても動く */ }
 }
 
+/** キーボードでメニューを選ぶときの割り当て（どれも CSS の選択子） */
+interface NavSpec {
+  /** 上下で動かすと、そのまま選ぶ一覧（コース、車） */
+  list?: string;
+  /** 上下で動かすだけのボタン（Enter で押す） */
+  focusList?: string;
+  /** 左右で切り替える種類 */
+  tabs?: string;
+  /** 左右で動かすボタン（種類が無いとき。決めなければ下のボタンの列） */
+  sideList?: string;
+  /** Enter で押すもの */
+  enter?: string;
+  /** Esc で押すもの */
+  back?: string;
+}
+
 const COLORS = ['#c8312b', '#3d6fb6', '#2f7d4a', '#f0b400', '#7b4fb0', '#e07020', '#20a0a0', '#d0d0d0'];
 
 class App {
@@ -121,6 +138,7 @@ class App {
       if (a === 'shiftDown' && !this.session.paused) this.session.player?.vehicle.requestShift(-1);
     };
     this.input.onAction = act;
+    window.addEventListener('keydown', (e) => this.onMenuKey(e));
     this.touch.onAction = act;
     this.pad.onAction = act;
     document.body.classList.toggle('manual', this.prefs.manual);
@@ -156,6 +174,77 @@ class App {
     requestAnimationFrame((t) => this.frame(t));
   }
 
+  // ------------------------------------------------------------ キーボードでメニューを選ぶ
+  private nav: NavSpec | null = null;
+  private navRoot: HTMLElement | null = null;
+  private navFocus: HTMLElement | null = null;
+
+  private setNav(root: HTMLElement | null, spec: NavSpec | null) {
+    this.navRoot = root;
+    this.nav = spec;
+    this.navFocus?.classList.remove('kb-focus');
+    this.navFocus = null;
+  }
+
+  private onMenuKey(e: KeyboardEvent) {
+    const s = this.session;
+    if (s && !s.paused && !this.resultsShown) return;
+    const nav = this.nav, root = this.navRoot;
+    if (!nav || !root || !root.isConnected) return;
+    const t = e.target as HTMLElement | null;
+    const typing = !!t && ['INPUT', 'SELECT', 'TEXTAREA'].includes(t.tagName);
+    if (typing && e.key !== 'Escape') return;
+    const visible = (sel?: string) => (sel ? [...root.querySelectorAll<HTMLElement>(sel)].filter((x) => x.offsetParent !== null) : []);
+    const focus = (el: HTMLElement | undefined) => {
+      if (!el) return;
+      this.navFocus?.classList.remove('kb-focus');
+      this.navFocus = el;
+      el.classList.add('kb-focus');
+      el.scrollIntoView({ block: 'nearest' });
+    };
+    const step = (items: HTMLElement[], cur: number, d: number) => items[Math.max(0, Math.min(items.length - 1, cur < 0 ? (d > 0 ? 0 : items.length - 1) : cur + d))];
+    let handled = true;
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      const d = e.key === 'ArrowDown' ? 1 : -1;
+      const list = visible(nav.list);
+      if (list.length > 0) {
+        const next = step(list, list.findIndex((x) => x.classList.contains('selected')), d);
+        this.navFocus?.classList.remove('kb-focus');
+        this.navFocus = null;
+        next?.click();
+        next?.scrollIntoView({ block: 'nearest' });
+      } else {
+        const items = visible(nav.focusList);
+        if (items.length > 0) focus(step(items, this.navFocus ? items.indexOf(this.navFocus) : -1, d));
+        else handled = false;
+      }
+    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      const d = e.key === 'ArrowRight' ? 1 : -1;
+      const tabs = visible(nav.tabs);
+      if (tabs.length > 0) step(tabs, tabs.findIndex((x) => x.classList.contains('selected')), d)?.click();
+      else {
+        const items = visible(nav.sideList ?? '.buttons button');
+        if (items.length > 0) focus(step(items, this.navFocus ? items.indexOf(this.navFocus) : -1, d));
+        else handled = false;
+      }
+    } else if (e.key === 'Enter') {
+      if (this.navFocus && this.navFocus.isConnected) this.navFocus.click();
+      else root.querySelector<HTMLElement>(nav.enter ?? '')?.click();
+    } else if ((e.key === 'Escape' || e.key === 'Backspace') && nav.back) {
+      root.querySelector<HTMLElement>(nav.back)?.click();
+    } else {
+      handled = false;
+    }
+    if (handled) e.preventDefault();
+  }
+
+  /** 1 Track、2 Car、3 Tune の段の見出し */
+  private steps(on: 1 | 2 | 3, title: string, sub = '') {
+    const names = ['Track', 'Car', 'Tune'];
+    return `<div class="steps">${names.map((n, i) => `<span class="step ${i + 1 === on ? 'on' : i + 1 < on ? 'done' : ''}"><b>${i + 1}</b>${n}</span>`).join('<i></i>')}</div>
+      <h2 class="screen-title">${title}${sub ? ` <span class="sub">${sub}</span>` : ''}</h2>`;
+  }
+
   private screen(html: string, cls = 'panel') {
     // 地球儀はコースを選ぶ画面だけ
     if (this.globe) { this.view.hideGlobe(); this.globe = null; this.card = null; this.leader = null; }
@@ -170,23 +259,46 @@ class App {
 
   // ------------------------------------------------------------ タイトル
   private showTitle() {
+    const real = COURSES.filter((c) => PLACES[c.id]).length;
     const el = this.screen(`
-      <h1 class="game-title">Apex <span>Atlas</span></h1>
-      <p class="tagline">Real circuits. Real physics. Race the world.</p>
-      <p class="lead">Pick a circuit on the globe and race it. Tire friction, suspension, the drivetrain from engine to wheels, and aerodynamics are all simulated.</p>
-      <div class="buttons title-start"><button class="primary" data-go>Start</button></div>
-      ${this.prefsHtml()}
-      <p class="note">${isTouch
-        ? 'Hold the phone in landscape and tilt it like a steering wheel. Right pedal is throttle, left pedal is brake. Shifting is automatic.'
-        : 'Play with a keyboard or gamepad. ← → steer, ↑ throttle, ↓ brake. In manual mode, E shifts up and Q shifts down.'}</p>`);
+      ${logoSvg()}
+      <p class="title-tagline">Real circuits. Real physics. Race the world.</p>
+      <button class="title-start" data-go>Start</button>
+      <div class="title-sub">
+        <button data-prefs>Settings</button>
+        ${isTouch ? '' : '<span class="title-hint">Press Enter to start</span>'}
+      </div>
+      <div class="title-prefs panel" hidden>${this.prefsHtml()}</div>
+      <p class="title-foot"><span class="count">${real}</span> real circuits on 4 continents. ${isTouch
+        ? 'Hold the phone in landscape and tilt it to steer.'
+        : 'Keyboard or gamepad. ← → steer, ↑ throttle, ↓ brake.'} Tap a glowing circuit to jump in.</p>`, 'title-screen');
     this.bindPrefs(el);
-    this.on(el, '[data-go]', () => {
+    const prefs = el.querySelector('.title-prefs') as HTMLElement;
+    this.on(el, '[data-prefs]', () => { prefs.hidden = !prefs.hidden; });
+    const start = (courseId?: string) => {
       // 音、傾きセンサー、全画面と横向きの固定は、利用者のタップの中でしか始められない
       this.sound.unlock();
       void this.touch.enable();
       requestLandscape();
+      if (courseId) {
+        const c = COURSES.find((x) => x.id === courseId);
+        if (c) { this.course = c; this.laps = c.laps || 3; }
+      }
       this.showCourse();
-    });
+    };
+    this.on(el, '[data-go]', () => start());
+    this.setNav(el, { enter: '[data-go]' });
+    // 後ろで地球儀がゆっくり回る。光る柱を押すと、そのコースを選んで次へ
+    const globe = this.view.showGlobe();
+    this.globe = globe;
+    globe.setMarkers(this.globeMarkers());
+    globe.setFraming('title');
+    globe.onPick = (id) => start(id);
+  }
+
+  /** 地球儀の柱（実在のコース） */
+  private globeMarkers() {
+    return COURSES.filter((c) => PLACES[c.id]).map((c) => ({ id: c.id, lat: PLACES[c.id].lat, lon: PLACES[c.id].lon, color: CAT_COLOR[c.category ?? 'original'] }));
   }
 
   // ------------------------------------------------------------ コース
@@ -200,21 +312,26 @@ class App {
     this.courseTab = this.course.category ?? 'original';
     const tabs: [CourseCategory, string][] = (['original', 'international', 'technical', 'street', 'oval'] as CourseCategory[]).map((k) => [k, CAT_NAME[k]]);
     const el = this.screen(`
-      <h2>1. Choose a track</h2>
+      ${this.steps(1, 'Choose a track')}
       <div class="tabs">${tabs.map(([k, n]) => `<button class="tab ${k === this.courseTab ? 'selected' : ''}" data-tab="${k}"><span class="dot" style="background:${CAT_COLOR[k]}"></span>${n}</button>`).join('')}</div>
       <div class="course-list"></div>
-      <p class="note credit"></p>
       <div class="race-options"></div>
-      <div class="buttons"><button data-back>Back</button><button class="primary" data-next>Next: choose a car</button></div>`, 'panel course-panel');
+      <div class="buttons"><button data-back>Back</button><button class="primary" data-next>Next: choose a car</button></div>
+      <p class="kb-hint"><b>↑</b><b>↓</b> track&ensp;<b>←</b><b>→</b> category&ensp;<b>Enter</b> next&ensp;<b>Esc</b> back</p>`, 'panel course-panel');
     this.coursePanel = el;
+    this.setNav(el, { list: '.course-row', tabs: '.tab', enter: '[data-next]', back: '[data-back]' });
     const list = el.querySelector('.course-list') as HTMLElement;
-    const credit = el.querySelector('.credit') as HTMLElement;
+    // 出典は画面の下の細い行に出す
+    const credit = document.createElement('p');
+    credit.className = 'screen-credit';
+    this.overlay.append(credit);
     const opts = el.querySelector('.race-options') as HTMLElement;
 
     // 地球儀と、選んだコースの説明のカード
     const globe = this.view.showGlobe();
     this.globe = globe;
-    globe.setMarkers(COURSES.filter((c) => PLACES[c.id]).map((c) => ({ id: c.id, lat: PLACES[c.id].lat, lon: PLACES[c.id].lon, color: CAT_COLOR[c.category ?? 'original'] })));
+    globe.setMarkers(this.globeMarkers());
+    globe.setFraming('select');
     this.leader = document.createElement('div');
     this.leader.className = 'globe-leader';
     this.leader.style.pointerEvents = 'none';
@@ -274,13 +391,15 @@ class App {
     };
     const renderList = () => {
       const items = COURSES.filter((c) => (c.category ?? 'original') === this.courseTab);
-      list.innerHTML = items.map((c) => `
-        <button class="course-row ${c.id === this.course.id ? 'selected' : ''}" data-course="${c.id}">
-          <span class="dot" style="background:${CAT_COLOR[c.category ?? 'original']}"></span>
+      list.innerHTML = items.map((c, i) => `
+        <button class="course-row ${c.id === this.course.id ? 'selected' : ''}" data-course="${c.id}" style="--cat:${CAT_COLOR[c.category ?? 'original']}">
+          <span class="row-num">${String(i + 1).padStart(2, '0')}</span>
           <span class="row-name">${c.name}</span>
-          <span class="row-sub">${c.country ?? ''}${c.lengthOfficial ? ` ${(c.lengthOfficial / 1000).toFixed(1)} km` : ''}</span>
+          ${c.country ? `<span class="row-chip">${c.country}</span>` : ''}
+          <span class="row-sub">${c.lengthOfficial ? `${(c.lengthOfficial / 1000).toFixed(1)} km` : ''}</span>
         </button>`).join('');
       this.on(list, '[data-course]', (b) => choose(COURSES.find((c) => c.id === b.dataset.course)!));
+      requestAnimationFrame(() => list.querySelector('.course-row.selected')?.scrollIntoView({ block: 'nearest' }));
     };
     const setTab = (t: CourseCategory) => {
       this.courseTab = t;
@@ -375,27 +494,41 @@ class App {
   private showCarSelect() {
     const all = [...CAR_PRESETS.map((p) => ({ p, custom: false })), ...this.custom.map((p) => ({ p, custom: true }))];
     const el = this.screen(`
-      <h2>2. Choose a car</h2>
-      <div class="car-list">${all.map(({ p, custom }, i) => `
-        <button class="car-item ${p.id === this.car.id && p.name === this.car.name ? 'selected' : ''}" data-car="${i}">
-          <span class="swatch" style="background:${p.color}"></span>${p.name}${custom ? '<span class="tag">Custom</span>' : ''}
-        </button>`).join('')}</div>
+      ${this.steps(2, 'Choose a car')}
+      <div class="car-list">${all.map(({ p, custom }, i) => {
+        const d = computeDerived(p);
+        return `
+        <button class="car-item ${p.id === this.car.id && p.name === this.car.name ? 'selected' : ''}" data-car="${i}" style="--car:${p.color}">
+          <span class="car-stripe"></span>
+          <span class="car-main"><span class="car-name">${p.name}${custom ? '<span class="tag">Custom</span>' : ''}</span>
+          <span class="car-sub">${(d.peakPowerKW * 1.3596).toFixed(0)} PS&ensp;${p.body.mass.toLocaleString('en-US')} kg</span></span>
+          <span class="car-badge">${p.drive.layout}</span>
+        </button>`;
+      }).join('')}</div>
       <div class="car-summary"></div>
       <div class="buttons">
         <button data-back>Back</button>
         <button data-import>Import (JSON)</button>
         <button data-detail>Tune</button>
         <button class="primary" data-go>Race now</button>
-      </div>`, 'panel narrow');
+      </div>
+      <p class="kb-hint"><b>↑</b><b>↓</b> car&ensp;<b>←</b><b>→</b> buttons&ensp;<b>Enter</b> race&ensp;<b>Esc</b> back</p>`, 'panel narrow car-panel');
     const sum = el.querySelector('.car-summary') as HTMLElement;
+    this.setNav(el, { list: '.car-item', enter: '[data-go]', back: '[data-back]' });
+    requestAnimationFrame(() => el.querySelector('.car-item.selected')?.scrollIntoView({ block: 'nearest' }));
     const renderSum = () => {
-      const d = computeDerived(this.car);
-      sum.innerHTML = `<table class="derived">
-        <tr><th>Drive</th><td>${this.car.drive.layout}(${this.car.engine.orientation === 'longitudinal' ? 'longitudinal' : 'transverse'} engine)</td></tr>
-        <tr><th>Mass</th><td>${this.car.body.mass} kg(${(this.car.body.weightFront * 100).toFixed(0)}% front)</td></tr>
-        <tr><th>Peak power</th><td>${d.peakPowerKW.toFixed(0)} kW (${(d.peakPowerKW * 1.3596).toFixed(0)} PS)</td></tr>
-        <tr><th>Est. top speed</th><td>${d.topSpeedKmh.toFixed(0)} km/h</td></tr>
-        <tr><th>Gearbox</th><td>${this.car.gearbox.ratios.length}-speed automatic</td></tr></table>`;
+      const p = this.car, d = computeDerived(p);
+      const ps = d.peakPowerKW * 1.3596;
+      const df = 0.5 * 1.225 * (200 / 3.6) ** 2 * p.aero.frontalArea * (p.aero.clFront + p.aero.clRear) / 9.81;
+      const bar = (label: string, value: string, frac: number) => `
+        <div class="stat"><span class="stat-label">${label}</span><span class="stat-bar"><i style="width:${Math.max(3, Math.min(100, frac * 100)).toFixed(0)}%"></i></span><span class="stat-value">${value}</span></div>`;
+      sum.innerHTML = `
+        ${bar('Power', `${ps.toFixed(0)} PS`, ps / 700)}
+        ${bar('Top speed', `${d.topSpeedKmh.toFixed(0)} km/h`, (d.topSpeedKmh - 100) / 260)}
+        ${bar('Power / weight', `${(ps / (p.body.mass / 1000)).toFixed(0)} PS/t`, ps / (p.body.mass / 1000) / 500)}
+        ${bar('Grip', `μ ${p.tire.mu.toFixed(2)}`, (p.tire.mu - 0.7) / 0.7)}
+        ${bar('Downforce', `${df.toFixed(0)} kgf @200`, df / 450)}
+        <p class="car-facts">${p.drive.layout}&ensp;${p.engine.orientation === 'longitudinal' ? 'longitudinal' : 'transverse'} engine&ensp;${p.gearbox.ratios.length}-speed&ensp;${(p.body.weightFront * 100).toFixed(0)}% front weight</p>`;
     };
     renderSum();
     this.on(el, '[data-car]', (b) => {
@@ -422,7 +555,7 @@ class App {
   // ------------------------------------------------------------ 詳細設定
   private showSettings() {
     const el = this.screen(`
-      <h2>3. Tuning <span class="sub">${this.car.name}</span></h2>
+      ${this.steps(3, 'Tuning', this.car.name)}
       <div class="settings">
         <div class="settings-side"><div class="derived-box"></div></div>
         <div class="settings-form"></div>
@@ -445,6 +578,7 @@ class App {
       timer = window.setTimeout(() => this.view.showCar(this.car), 200);
     };
     buildSettingsForm(form, this.car, changed);
+    this.setNav(el, { enter: '[data-go]', back: '[data-back]' });
     renderDerived(side, this.car);
     this.on(el, '[data-back]', () => this.showCarSelect());
     this.on(el, '[data-go]', () => this.startRace());
@@ -498,6 +632,7 @@ class App {
       this.resultsShown = false;
       this.overlay.style.display = 'none';
       this.overlay.innerHTML = '';
+      this.setNav(null, null);
     }, 30);
   }
 
@@ -505,7 +640,7 @@ class App {
     const s = this.session;
     if (!s || this.resultsShown) return;
     s.paused = !s.paused;
-    if (!s.paused) { this.overlay.style.display = 'none'; return; }
+    if (!s.paused) { this.overlay.style.display = 'none'; this.setNav(null, null); return; }
     const a = s.attack;
     const el = this.screen(`
       <h2>Paused</h2>
@@ -524,6 +659,7 @@ class App {
     const gh = el.querySelector('[data-ghost]') as HTMLInputElement | null;
     gh?.addEventListener('change', () => { this.view.showGhost = gh.checked; });
     this.on(el, '[data-finish]', () => this.showResults());
+    this.setNav(el, { focusList: '.buttons.vertical button', enter: '[data-resume]' });
     this.on(el, '[data-resume]', () => this.togglePause());
     this.on(el, '[data-restart]', () => this.startRace());
     this.on(el, '[data-car]', () => { this.endSession(); this.showCarSelect(); });
@@ -631,6 +767,7 @@ class App {
       ${this.telemetryHtml()}
       <div class="buttons"><button data-menu>Change track</button><button data-car>Change car</button><button class="primary" data-again>Race again</button></div>`, 'panel center');
     this.drawTelemetry(el);
+    this.setNav(el, { focusList: '.buttons button', enter: '[data-again]' });
     this.on(el, '[data-again]', () => this.startRace());
     this.on(el, '[data-car]', () => { this.endSession(); this.showCarSelect(); });
     this.on(el, '[data-menu]', () => { this.endSession(); this.showCourse(); });
@@ -649,6 +786,7 @@ class App {
           <td>${r.finished ? formatTime(r.finishTime) : `${r.laps} laps`}</td><td>${formatTime(r.bestLap)}</td></tr>`).join('')}
       </table>
       <div class="buttons"><button data-menu>Change track</button><button data-car>Change car</button><button class="primary" data-again>Race again</button></div>`, 'panel center');
+    this.setNav(el, { focusList: '.buttons button', enter: '[data-again]' });
     this.on(el, '[data-again]', () => this.startRace());
     this.on(el, '[data-car]', () => { this.endSession(); this.showCarSelect(); });
     this.on(el, '[data-menu]', () => { this.endSession(); this.showCourse(); });

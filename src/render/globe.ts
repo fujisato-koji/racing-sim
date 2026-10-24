@@ -84,6 +84,12 @@ export class Globe {
   private hovered: string | null = null;
   /** 地球儀の中心を置く位置（画面の幅に対する割合） */
   centerX = 0.64;
+  /** 地球儀の中心を置く高さ（画面の高さに対する割合） */
+  centerY = 0.5;
+  private tCenterX = 0.64;
+  private tCenterY = 0.5;
+  /** title はタイトル画面（地平線のように下に大きく置く）、select はコースを選ぶ画面 */
+  private framing: 'title' | 'select' = 'select';
   onPick: ((id: string) => void) | null = null;
   private dom: HTMLElement | null = null;
   private readonly handlers: [string, (e: Event) => void][] = [];
@@ -220,6 +226,13 @@ export class Globe {
   }
 
   /** 柱を選ぶ。fly なら、その場所が正面に来るように回って寄る。null なら引いて回り続ける */
+  /** 置き方を変える。間の動きはなめらかにつなぐ */
+  setFraming(f: 'title' | 'select') {
+    this.framing = f;
+    if (f === 'title') { this.tCenterX = 0.5; this.tCenterY = 1.02; this.tDist = 2.2; this.tYaw = null; this.tPitch = 0.3; this.selected = null; this.idle = 3; }
+    else { this.tCenterX = 0.64; this.tCenterY = 0.5; if (!this.selected) this.tDist = FAR; }
+  }
+
   select(id: string | null, fly = true) {
     this.selected = id;
     const o = this.markers.find((x) => x.m.id === id);
@@ -361,20 +374,24 @@ export class Globe {
         this.yaw += this.vYaw * dt; this.pitch = Math.max(-1.3, Math.min(1.3, this.pitch + this.vPitch * dt));
         this.vYaw *= Math.exp(-dt * 3); this.vPitch *= Math.exp(-dt * 3);
         this.idle += dt;
-        if (!this.selected && this.idle > 1.5) this.yaw += dt * 0.07 * Math.min(1, (this.idle - 1.5) / 2);
+        const spin = this.framing === 'title' ? 0.05 : 0.07;
+        if (!this.selected && this.idle > 1.5) this.yaw += dt * spin * Math.min(1, (this.idle - 1.5) / 2);
       }
     }
     this.dist += (this.tDist - this.dist) * a;
+    this.centerX += (this.tCenterX - this.centerX) * a;
+    this.centerY += (this.tCenterY - this.centerY) * a;
+    if (this.framing === 'title' && !this.drag) this.pitch += (this.tPitch - this.pitch) * a;
     this.earth.rotation.set(this.pitch, this.yaw, 0, 'XYZ');
     this.earth.updateMatrixWorld();
     this.camera.aspect = w / h;
     this.camera.position.set(0, 0, this.dist);
     this.camera.lookAt(0, 0, 0);
-    this.camera.setViewOffset(w, h, w * (0.5 - this.centerX), 0, w, h);
+    this.camera.setViewOffset(w, h, w * (0.5 - this.centerX), h * (0.5 - this.centerY), w, h);
     this.camera.updateProjectionMatrix();
     const buf = r.getDrawingBufferSize(new THREE.Vector2());
     this.landMat.uniforms.scale.value = buf.y / (2 * Math.tan((this.camera.fov * D2R) / 2));
-    this.landMat.uniforms.maxSize.value = 6 * (buf.y / h);
+    this.landMat.uniforms.maxSize.value = (this.framing === 'title' ? 3.6 : 6) * (buf.y / h);
 
     // 柱：選んだものは高く明るく、根元に広がる輪
     for (const o of this.markers) {
