@@ -14,7 +14,7 @@ Play: <https://fujisato-koji.github.io/racing-sim/> (keyboard, gamepad, or a pho
 - 20 real circuits in four groups (Grand Prix, Technical, Street, Oval) plus 3 original tracks, chosen on a 3D globe. Track shapes come from OpenStreetMap and the surrounding terrain from real elevation data. Each track has its own light, weather and colors.
 - Race against AI drivers, or run time attack laps against a ghost of your best lap with telemetry.
 - Six preset cars and full tuning of dimensions, suspension, tires, engine, gearbox, differentials, aerodynamics and driver aids.
-- Data credits: track shapes © OpenStreetMap contributors (ODbL 1.0); terrain from Terrain Tiles (3DEP, SRTM and GMTED2010 data courtesy of the U.S. Geological Survey; ETOPO1 from NOAA; EU-DEM produced using Copernicus data and information funded by the European Union; © Environment Agency copyright and/or database right 2015, all rights reserved; © Commonwealth of Australia (Geoscience Australia) 2017); globe land outlines from Natural Earth (public domain). Details are in the Japanese sections below.
+- Data credits: track shapes and nearby buildings © OpenStreetMap contributors (ODbL 1.0); terrain from Terrain Tiles (3DEP, SRTM and GMTED2010 data courtesy of the U.S. Geological Survey; ETOPO1 from NOAA; EU-DEM produced using Copernicus data and information funded by the European Union; © Environment Agency copyright and/or database right 2015, all rights reserved; © Commonwealth of Australia (Geoscience Australia) 2017); globe land outlines from Natural Earth (public domain). Details are in the Japanese sections below.
 
 ## 操作（キーボード）
 
@@ -97,7 +97,7 @@ Play: <https://fujisato-koji.github.io/racing-sim/> (keyboard, gamepad, or a pho
 
 - 車体は、諸元の寸法から横から見た形（ボンネット、前後の窓、屋根、トランク）、上から見た形、断面を決めて一枚の面にしています。車輪の上はフェンダーの切り欠き、窓まわりはガラスと柱（A、B、C ピラー）を塗り分けます。車体の型（軽、ハッチバック、セダン、クーペ、SUV、ミッドシップ）で形が変わります。
 - コースには、縁石（赤白。物理でも細かい段のある路面）、コンクリートの分離帯、白帯のコーン、タイヤバリア、木、観客席、ピットを置いています。まわり 30 km は遠景の地形（実在のコースは標高データ、作ったコースは雑音から作った山）で、遠くほど霞みます。
-- 木は針葉樹、広葉樹、笠松、ヤシ、糸杉の 5 種類で、種類ごとに形の違う 3 本を、向き、大きさ、色味をずらして並べます。斜面や丘の森の濃い所ほど多く植えます。
+- 木は針葉樹、広葉樹、笠松、ヤシ、糸杉の 5 種類で、種類ごとに形の違う 3 本を、向き、大きさ、色味をずらして並べます。木は散らさず、森は密な塊にします。遠くの森は樹冠の面（でこぼこの緑の塊）で描き、道から見える帯と森の縁に 1 本ずつの木を並べます。畑の多いコース（シルバーストン、インディアナポリスなど）は、畑の境に並木を置きます。森の広さと樹冠の高さはテーマごとに決めています。
 - コースごとに色のテーマがあります。時刻と天気（太陽の高さと向き、光の色、霞）、草と森の色、木の種類、建物の外壁、差し色を 1 つの雰囲気にまとめています（例：鈴鹿は秋の午後、スパは曇りの森、モナコは地中海の昼、マリーナベイは夕暮れ）。定義は `src/render/themes.ts` です。
 - 空は上ほど濃い青で、太陽のまわりが明るく、同じ空を車の塗装やガラスに映しています。
 - 描画の質は 自動、低、中、高 から選べます（タイトルか一時停止の画面）。自動のときは、フレームの時間を見て描く画素の数を減らしたり戻したりします。
@@ -128,7 +128,8 @@ Play: <https://fujisato-koji.github.io/racing-sim/> (keyboard, gamepad, or a pho
   - Produced using Copernicus data and information funded by the European Union - EU-DEM layers（ベルギー、イタリア、オランダ、ハンガリー、モナコ、アゼルバイジャン、イギリス）
   - © Environment Agency copyright and/or database right 2015. All rights reserved（イギリス）
   - © Commonwealth of Australia (Geoscience Australia) 2017（オーストラリア）
-- 遠景の植生の色、市街地の建物、作ったコースの山は作り物です。市街地の建物は高さと並びを乱数で置いたもので、実際の街並みではありません。
+- コースのまわり（コースの外接の四角 + 120 m）の建物は、OpenStreetMap の建物の足元の形と高さ（height、無ければ階数 × 3.2 m）から作りました（`src/sim/buildings/*.json`、ODbL 1.0、2026-10-24 取得）。道の近くの建物にはぶつかります。取り込み直すときは `npx tsx tools/fetch-buildings.ts [id ...]` です。
+- 遠景の植生の色、窓の並び、壁と屋根の色、コースの範囲より外の街の建物、作ったコースの山は作り物です。範囲より外の街の建物は高さと並びを乱数で置いたもので、実際の街並みではありません。
 - コースを選ぶ画面の地球儀の陸の形は、Natural Earth の 1:110m の陸地（パブリックドメイン、https://github.com/nvkelso/natural-earth-vector の `geojson/ne_110m_land.geojson`、2026-10-24 取得）から作りました。作り直すときは `npx tsx tools/make-globe.ts <GeoJSON のパス>` です。各コースの所在地、開場の年、紹介文は `src/sim/tracks/places.ts` にあります。
 
 ## 開発

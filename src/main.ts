@@ -20,6 +20,14 @@ import type { Globe } from './render/globe';
 import { loadScenery } from './render/scenery';
 import { themeOf } from './render/themes';
 import { polarSampler } from './sim/terrain-sampler';
+import type { BuildingsData } from './sim/osm-buildings';
+import { decodeBuildings } from './sim/osm-buildings';
+
+const BUILDING_FILES = import.meta.glob<BuildingsData>('./sim/buildings/*.json', { import: 'default' });
+async function loadBuildings(id: string) {
+  const f = BUILDING_FILES[`./sim/buildings/${id}.json`];
+  try { return f ? decodeBuildings(await f()) : undefined; } catch { return undefined; }
+}
 import type { QualityPref } from './render/quality';
 import { quality } from './render/quality';
 import { buildSettingsForm, renderDerived } from './ui/settings';
@@ -421,7 +429,7 @@ class App {
   private startRace() {
     this.screen('<p class="loading">Building the track…</p>', 'panel center');
     setTimeout(async () => {
-      const scenery = await loadScenery(this.course.id);
+      const [scenery, buildings] = await Promise.all([loadScenery(this.course.id), loadBuildings(this.course.id)]);
       const opponents: CarParams[] = [];
       if (this.course.track) {
         for (let i = 0; i < this.opponents; i++) {
@@ -434,7 +442,7 @@ class App {
       this.touch.reset();
       this.session?.dispose();
       this.session = new Session(RAPIER, { course: this.course, player: cloneParams(this.car), opponents, laps: this.laps, mode: this.course.track ? this.mode : 'race',
-        terrain: scenery ? polarSampler(scenery, themeOf(this.course.id).seaLevel ?? 0) : undefined },
+        terrain: scenery ? polarSampler(scenery, themeOf(this.course.id).seaLevel ?? 0) : undefined, buildings },
         (dt, v) => {
           // キーボードとスマホのどちらでも。キーでハンドルを切っているときはキーを優先
           const k = this.input.update(dt, v.speed), t = this.touch.update(dt, v.speed), g = this.pad;

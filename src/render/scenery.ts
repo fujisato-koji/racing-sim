@@ -287,7 +287,7 @@ export function buildScenery(c: CourseData, data: SceneryData | null, style: Sce
       return Math.sqrt(best);
     };
     const clear = c.width / 2 + 22;
-    for (let gx = x0; gx < x1; gx += 34) {
+    for (let gx = c.osm.length > 0 ? x1 : x0; gx < x1; gx += 34) {
       for (let gz = z0; gz < z1; gz += 34) {
         const x = gx + rnd() * 20, z = gz + rnd() * 20;
         const r = Math.hypot(x, z);

@@ -9,6 +9,7 @@ import { onLayoutChange, viewSize } from '../ui/layout';
 import { Gauges } from '../ui/gauges';
 import { CarMesh } from './car-mesh';
 import { CourseMesh } from './course-mesh';
+import { FAR_TREE_LAYER } from './forest';
 import { Globe } from './globe';
 import type { SceneryData, SceneryMesh } from './scenery';
 import { SCENERY_LAYER, buildScenery } from './scenery';
@@ -83,6 +84,8 @@ export class GameView {
     this.sky.mesh.layers.set(SCENERY_LAYER);
     this.scene.add(this.sky.mesh);
     this.farCam.layers.set(SCENERY_LAYER);
+    // 簡単な形の遠くの木は前のカメラだけが写す（バックミラーと影には出さない）
+    this.mainCam.layers.enable(FAR_TREE_LAYER);
     this.mirrorFarCam.layers.set(SCENERY_LAYER);
     this.hemi = new THREE.HemisphereLight(0xcfe4ff, 0x56603f, 0.55);
     this.hemi.layers.enable(SCENERY_LAYER);
@@ -280,6 +283,7 @@ export class GameView {
     const pos = car.group.position, quat = car.group.quaternion;
     const geo = carGeometry(pv.p);
     this.placeGhost(s, pos);
+    this.courseMesh?.updateView(pos.x, pos.z);
 
     // 運転席視点か後方視点
     if (this.clusterMesh) this.clusterMesh.visible = this.mode === 'cockpit';

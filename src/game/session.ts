@@ -12,6 +12,7 @@ import { Vehicle } from '../sim/vehicle';
 import type { Rapier } from '../sim/world';
 import { PhysicsWorld } from '../sim/world';
 import type { TerrainSampler } from '../sim/terrain-sampler';
+import type { RealBuilding } from '../sim/osm-buildings';
 import { TimeAttack, carKeyOf } from './timeattack';
 
 export interface SessionConfig {
@@ -23,6 +24,8 @@ export interface SessionConfig {
   mode?: 'race' | 'attack';
   /** 実在のコースのまわりの標高（遠景のデータ）。無ければコースの標高から作る */
   terrain?: TerrainSampler;
+  /** 実在の建物（OpenStreetMap） */
+  buildings?: RealBuilding[];
 }
 
 /** タイムアタックは終わりを決めず、やめるまで周回する */
@@ -49,7 +52,7 @@ export class Session {
 
   constructor(R: Rapier, readonly cfg: SessionConfig, readonly playerInput: (dt: number, v: Vehicle) => Controls) {
     this.pw = new PhysicsWorld(R);
-    this.course = buildCourse(cfg.course, cfg.terrain);
+    this.course = buildCourse(cfg.course, cfg.terrain, cfg.buildings);
     populate(this.pw, this.course);
     const grid = this.course.grid;
     const hasTrack = this.course.path.length > 0;

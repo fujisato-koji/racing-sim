@@ -5,12 +5,13 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import type { CourseData } from '../sim/course';
 import { SURFACES } from '../sim/surfaces';
 import type { PhysicsWorld } from '../sim/world';
-import { quality } from './quality';
-import { cityMix, forestAmount, natureColor, paletteOf } from './scenery';
+import { cityMix, natureColor, paletteOf } from './scenery';
 import type { CourseTheme } from './themes';
 import { DEFAULT_THEME } from './themes';
-import type { TreeKind } from './trees';
-import { DOUBLE_SIDED, treeVariants } from './trees';
+import type { ForestMesh } from './forest';
+import { buildForest } from './forest';
+import { buildOsmMesh } from './osm-mesh';
+import { insidePolygon } from '../sim/osm-buildings';
 import { checkerTexture, groundDetailTexture, roadTexture, stripeTexture } from './textures';
 
 /** 頂点の色を一色で塗る */
@@ -110,6 +111,28 @@ export class CourseMesh {
   private readonly cones: THREE.InstancedMesh | null = null;
   private readonly tires: THREE.InstancedMesh | null = null;
   private readonly disposables: { dispose(): void }[] = [];
+  /** 実在の建物の中か（森を置かないため） */
+  private readonly osmGrid = new Map<number, Float32Array[]>();
+  private forest: ForestMesh | null = null;
+  /** 見ている所（車の位置）に合わせて、描く木を入れ替える */
+  updateView(x: number, z: number) { this.forest?.update(x, z); }
+  private inBuilding(x: number, z: number) {
+    // 実在の建物の中とまわり（升目の中の建物を、まわり 4 m 広げて調べる）
+    for (const pts of this.osmGrid.get(Math.floor(x / 20) * 100003 + Math.floor(z / 20)) ?? []) {
+      if (insidePolygon(pts, x, z) || insidePolygon(pts, x + 4, z) || insidePolygon(pts, x - 4, z) || insidePolygon(pts, x, z + 4) || insidePolygon(pts, x, z - 4)) return true;
+    }
+    // スタンド、ピット、街の建物の足元（回した長方形）と、そのまわり 8 m
+    for (const b of this.c.buildings) {
+      const half = b.length / 2 + 8;
+      const depth = b.kind === 'stand' ? 18 : b.kind === 'pit' ? 22 : (b.depth ?? 14) / 2 + 8;
+      const dx = x - b.x, dz = z - b.z;
+      const cs = Math.cos(b.yaw), sn = Math.sin(b.yaw);
+      // 長さはどれも走る向き (−sin yaw, −cos yaw) に沿う
+      const along = dx * sn + dz * cs, across = dx * cs - dz * sn;
+      if (Math.abs(along) < half && Math.abs(across) < depth) return true;
+    }
+    return false;
+  }
 
   /** theme はコースの色のテーマ（植生、木の種類、建物の色） */
   constructor(readonly c: CourseData, readonly pw: PhysicsWorld, theme: CourseTheme = DEFAULT_THEME) {
@@ -128,6 +151,8 @@ export class CourseMesh {
         cl.setRGB(c.terrain.colors[i * 3], c.terrain.colors[i * 3 + 1], c.terrain.colors[i * 3 + 2], THREE.SRGBColorSpace);
         const w = c.terrain.nature[i];
         if (w >= 0 && c.def.ground === 'grass') cl.lerp(nat.setHex(pal.meadow), 0.6);
+        // 市街地の舗装は、テーマの躯体の色（石や漆喰の色）へ寄せる
+        if (w >= 0 && c.def.ground === 'concrete') cl.lerp(nat.setHex(theme.structure).multiplyScalar(0.78), 0.55);
         if (w > 0) {
           const ix = i % (nx + 1), l = i - 1, r = i + 1, u = i - (nx + 1), d = i + nx + 1;
           const hy = (j: number) => (j >= 0 && j < n ? V[j * 3 + 1] : V[i * 3 + 1]);
@@ -255,46 +280,38 @@ export class CourseMesh {
       this.group.add(m);
     }
 
-    // 木：テーマの種類の割合で、森の濃い所ほど多く植える。種類ごとに形の違う 3 本をインスタンスで並べ、向き、大きさ、色味をずらす
+    // 実在の建物
     {
-      const limit = quality.level === 'low' ? 250 : quality.level === 'medium' ? 800 : 2000;
-      const kinds = (Object.entries(theme.trees) as [TreeKind, number][]).filter(([, w]) => w > 0);
-      const total = kinds.reduce((sum, [, w]) => sum + w, 0);
-      const buckets = new Map<string, number[]>();
-      let used = 0;
-      for (let i = 0; i < c.trees.length && used < limit && total > 0; i++) {
-        const [x, , z] = c.trees[i];
-        const sl = Math.hypot(c.heightAt(x + 4, z) - c.heightAt(x - 4, z), c.heightAt(x, z + 4) - c.heightAt(x, z - 4)) / 8;
-        if (hash01(i) > 0.2 + 0.8 * forestAmount(x, z, sl, 1)) continue;
-        let u = hash01(i * 7 + 3) * total, kind = kinds[0][0];
-        for (const [k, w] of kinds) { if (u < w) { kind = k; break; } u -= w; }
-        const key = `${kind}:${i % 3}`;
-        if (!buckets.has(key)) buckets.set(key, []);
-        buckets.get(key)!.push(i);
-        used++;
+      const o = buildOsmMesh(c, theme);
+      this.disposables.push(o);
+      this.group.add(o.group);
+      // 森を置かないための升目（建物の外接の四角を 20 m の升目に入れる）
+      for (const b of c.osm) {
+        let bx0 = Infinity, bz0 = Infinity, bx1 = -Infinity, bz1 = -Infinity;
+        for (let k = 0; k < b.pts.length; k += 2) { bx0 = Math.min(bx0, b.pts[k]); bx1 = Math.max(bx1, b.pts[k]); bz0 = Math.min(bz0, b.pts[k + 1]); bz1 = Math.max(bz1, b.pts[k + 1]); }
+        for (let gx = Math.floor((bx0 - 6) / 20); gx <= Math.floor((bx1 + 6) / 20); gx++)
+          for (let gz = Math.floor((bz0 - 6) / 20); gz <= Math.floor((bz1 + 6) / 20); gz++) {
+            const key = gx * 100003 + gz;
+            if (!this.osmGrid.has(key)) this.osmGrid.set(key, []);
+            this.osmGrid.get(key)!.push(b.pts);
+          }
       }
-      const tint = new THREE.Color(theme.treeTint), tc = new THREE.Color();
-      for (const [kind] of kinds) {
-        const variants = treeVariants(kind);
-        const mat = track(new THREE.MeshLambertMaterial({ vertexColors: true, side: DOUBLE_SIDED[kind] ? THREE.DoubleSide : THREE.FrontSide }));
-        variants.forEach((g, v) => {
-          const ids = buckets.get(`${kind}:${v}`) ?? [];
-          if (ids.length === 0) { g.dispose(); return; }
-          const m = new THREE.InstancedMesh(track(g), mat, ids.length);
-          ids.forEach((i, j) => {
-            const [x, y, z, s0] = c.trees[i];
-            const k = 0.75 + (s0 - 0.7) * 0.5;
-            q.setFromAxisAngle(Y, hash01(i * 13) * Math.PI * 2);
-            sc.set(k, k * (0.9 + 0.2 * hash01(i * 19)), k);
-            ps.set(x, y - 0.15, z);
-            m.setMatrixAt(j, m4.compose(ps, q, sc));
-            m.setColorAt(j, tc.copy(tint).multiplyScalar(0.86 + 0.28 * hash01(i * 23)));
-          });
-          m.castShadow = quality.level === 'high';
-          m.receiveShadow = true;
-          this.group.add(m);
-        });
-      }
+    }
+
+    // 森と並木（森は密な塊にし、遠くは樹冠の面、道から見える所は 1 本ずつの木）
+    {
+      const patches = c.def.patches ?? [], rocks = c.def.rockFields ?? [], ramps = c.def.ramps ?? [];
+      const open = c.path.length === 0;
+      const blocked = (x: number, z: number) =>
+        (open && Math.abs(x) < 160 && Math.abs(z) < 160) ||
+        patches.some((p) => Math.abs(x - p.x) <= p.w / 2 + 8 && Math.abs(z - p.z) <= p.d / 2 + 8) ||
+        rocks.some((r) => Math.hypot(x - r.x, z - r.z) < r.radius + 6) ||
+        ramps.some((r) => Math.hypot(x - r.x, z - r.z) < r.length + 10) ||
+        this.inBuilding(x, z);
+      const f = buildForest(c, theme, blocked);
+      this.disposables.push(f);
+      this.group.add(f.group);
+      this.forest = f;
     }
 
     // 街の建物：壁と、階ごとに帯の窓。全部を 2 つの形にまとめて描く

@@ -24,13 +24,15 @@ export interface CourseTheme extends SceneryStyle {
   /** ピットとスタンドの躯体、壁の色 */
   structure: number;
   wall: number;
+  /** 森：森にする濃さのしきい値（低いほど森が広い）、樹冠の高さ [m]、畑の境の並木の多さ（0〜1） */
+  forest: { threshold: number; canopy: number; hedgerows: number };
 }
 
 const FACADES_MED = [0xe6d7b8, 0xdcc49a, 0xe9e0cf, 0xd1a886, 0xc9b38c, 0xf0e8da, 0xb98f6e];
 const FACADES_GLASS = [0x7f95a8, 0x9aaebf, 0x6c8296, 0xb8c4cc, 0x8b9aa6, 0xd0d4d6];
 const FACADES_ASIA = [0xc9c6bd, 0xb3b6b4, 0xe0d6b0, 0xd6b9a6, 0x9fa9ad, 0xe8e4da];
 
-type Base = Omit<CourseTheme, 'sky'> & { sky: Partial<SkySettings> };
+type Base = Omit<CourseTheme, 'sky' | 'forest'> & { sky: Partial<SkySettings> };
 
 const SKY: SkySettings = {
   top: 0x2f6fc0, horizon: 0xc7dbeb, ground: 0x6b6f5a, sunElevation: 38, sunAzimuth: 135,
@@ -38,8 +40,21 @@ const SKY: SkySettings = {
 };
 
 function theme(b: Base): CourseTheme {
-  return { ...b, sky: { ...SKY, ...b.sky } };
+  return { ...b, sky: { ...SKY, ...b.sky }, forest: { threshold: 0.5, canopy: 14, hedgerows: 0 } };
 }
+
+/** コースごとの森の様子 */
+const FOREST: Record<string, Partial<CourseTheme['forest']>> = {
+  testfield: { threshold: 0.55 }, circuit: { threshold: 0.42 }, rally: { threshold: 0.28, canopy: 17 },
+  suzuka: { threshold: 0.42 }, spa: { threshold: 0.28, canopy: 18 }, monza: { threshold: 0.36, canopy: 16 },
+  silverstone: { threshold: 0.7, hedgerows: 0.8 }, fuji: { threshold: 0.4, canopy: 16 },
+  zandvoort: { threshold: 0.62, canopy: 7 }, 'brands-hatch': { threshold: 0.32, canopy: 16 }, hungaroring: { threshold: 0.5, hedgerows: 0.3 },
+  tsukuba: { threshold: 0.58, hedgerows: 0.5 }, 'laguna-seca': { threshold: 0.55, canopy: 9 },
+  monaco: { threshold: 0.6, canopy: 10 }, macau: { threshold: 0.42 }, singapore: { threshold: 0.55, canopy: 12 },
+  baku: { threshold: 0.8, canopy: 8 }, melbourne: { threshold: 0.5, canopy: 13 },
+  indianapolis: { threshold: 0.68, hedgerows: 0.6 }, daytona: { threshold: 0.55, canopy: 12 },
+  talladega: { threshold: 0.32, canopy: 18 }, charlotte: { threshold: 0.45 }, bristol: { threshold: 0.32, canopy: 17 },
+};
 
 const pal = (p: Partial<Palette>) => p;
 
@@ -212,6 +227,8 @@ export const THEMES: Record<string, CourseTheme> = {
     accent: 0xb8312f, seats: [0xb8312f, 0xe8e6e0, 0x34485c], structure: 0xcfd0cc, wall: 0xd8d8d4,
   }),
 };
+
+for (const [id, f] of Object.entries(FOREST)) if (THEMES[id]) THEMES[id].forest = { ...THEMES[id].forest, ...f };
 
 export const DEFAULT_THEME = THEMES.circuit;
 

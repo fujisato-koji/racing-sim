@@ -2,6 +2,7 @@
 // 描画と物理の両方がここで作った配列を使う。
 import { CatmullRomCurve3, Vector3 } from 'three';
 import type { TerrainSampler } from './terrain-sampler';
+import type { RealBuilding } from './osm-buildings';
 import type { SurfaceId } from './surfaces';
 import { SURFACES } from './surfaces';
 import type { PhysicsWorld } from './world';
@@ -92,6 +93,8 @@ export interface MeshPart {
 export interface CourseData {
   def: CourseDef;
   bounds: { x0: number; z0: number; x1: number; z1: number };
+  /** 実在の建物（足元の地面の低い所 base から、高い所 + 高さ top まで） */
+  osm: (RealBuilding & { base: number; top: number })[];
   /** 水面の高さ（海や湖が無ければ −∞） */
   seaY: number;
   terrain: { nx: number; nz: number; cell: number; vertices: Float32Array; colors: Float32Array; parts: MeshPart[]; nature: Float32Array };
@@ -346,8 +349,11 @@ class PathIndex {
 }
 
 // ---------------------------------------------------------------- 組み立て
-/** terrain があれば、コースのまわりの地形をその標高で作る（実在のコースの遠景データ） */
-export function buildCourse(def: CourseDef, terrain?: TerrainSampler): CourseData {
+/**
+ * terrain があれば、コースのまわりの地形をその標高で作る（実在のコースの遠景データ）。
+ * real があれば、実在の建物を置く（作り物の街の建物は置かない）
+ */
+export function buildCourse(def: CourseDef, terrain?: TerrainSampler, real?: RealBuilding[]): CourseData {
   const t = def.track;
   let path: PathSample[] = [], length = 0;
   if (t) ({ path, length } = buildPath(def, t));
@@ -694,8 +700,8 @@ export function buildCourse(def: CourseDef, terrain?: TerrainSampler): CourseDat
       buildings.push({ kind: 'pit', x: p0.x + p0.lx * o, y: p0.y, z: p0.z + p0.lz * o, yaw: yaw + (out > 0 ? Math.PI : 0), length: 110 });
     }
   }
-  // 市街地：壁の外に街の建物
-  if (t?.auto === 'street' && index) {
+  // 市街地：壁の外に街の建物（実在の建物があるときは置かない）
+  if (t?.auto === 'street' && index && !(real && real.length > 0)) {
     const rnd = rng(77);
     const e = width / 2;
     const colors = [0xb8b0a4, 0xd2c8b8, 0x9aa3ad, 0xc9b79c, 0x8d8f94, 0xe0dcd2, 0xa48f7a];
@@ -734,6 +740,26 @@ export function buildCourse(def: CourseDef, terrain?: TerrainSampler): CourseDat
     }
   }
 
+  // 実在の建物：作った観客席とピットに重なるものは除き、足元の高さを地面に合わせる
+  const osm: CourseData['osm'] = [];
+  for (const b of real ?? []) {
+    const m = b.pts.length / 2;
+    let cx = 0, cz = 0;
+    for (let k = 0; k < m; k++) { cx += b.pts[k * 2]; cz += b.pts[k * 2 + 1]; }
+    cx /= m; cz /= m;
+    if (cx < x0 || cx > x1 || cz < z0 || cz > z1) continue;
+    const hit = buildings.some((s) => {
+      if (s.kind === 'block') return false;
+      const dx = cx - s.x, dz = cz - s.z, sn = Math.sin(s.yaw), cs = Math.cos(s.yaw);
+      return Math.abs(dx * sn + dz * cs) < s.length / 2 + 10 && Math.abs(dx * cs - dz * sn) < 26;
+    });
+    if (hit) continue;
+    let lo = Infinity, hi = -Infinity;
+    for (let k = 0; k < m; k++) { const y = heightAt(b.pts[k * 2], b.pts[k * 2 + 1]); lo = Math.min(lo, y); hi = Math.max(hi, y); }
+    if (hi < seaY + 0.5) continue;
+    osm.push({ ...b, base: lo - 0.6, top: hi + b.height });
+  }
+
   // スタート位置
   const grid: CourseData['grid'] = [];
   if (t) {
@@ -750,7 +776,7 @@ export function buildCourse(def: CourseDef, terrain?: TerrainSampler): CourseDat
   }
 
   return {
-    def, bounds: { x0, z0, x1, z1 }, seaY,
+    def, bounds: { x0, z0, x1, z1 }, seaY, osm,
     terrain: { nx, nz, cell, vertices, colors, parts: terrainParts, nature },
     road, shoulder, path, length, width, ramps, rocks, walls, kerbs, trees, buildings, pillars, cones, tireStacks, grid, heightAt,
   };
@@ -772,6 +798,24 @@ export function populate(pw: PhysicsWorld, c: CourseData) {
     if (b.kind !== 'block') continue;
     const h = b.height ?? 12;
     pw.addStaticBox([b.x, b.y + h / 2, b.z], [(b.depth ?? 14) / 2, h / 2, b.length / 2], b.yaw);
+  }
+  // 実在の建物：道の近くのものだけ、壁を当たり判定にする（1 つの面にまとめる）
+  if (c.osm.length > 0 && c.path.length > 0) {
+    const v: number[] = [], ix: number[] = [];
+    const near = (x: number, z: number) => {
+      for (let i = 0; i < c.path.length; i += 4) { const p = c.path[i]; if ((p.x - x) ** 2 + (p.z - z) ** 2 < 70 * 70) return true; }
+      return false;
+    };
+    for (const b of c.osm) {
+      const m = b.pts.length / 2;
+      if (!near(b.pts[0], b.pts[1])) continue;
+      for (let k = 0; k < m; k++) {
+        const a = k, d = (k + 1) % m, o = v.length / 3;
+        v.push(b.pts[a * 2], b.base, b.pts[a * 2 + 1], b.pts[d * 2], b.base, b.pts[d * 2 + 1], b.pts[d * 2], b.top, b.pts[d * 2 + 1], b.pts[a * 2], b.top, b.pts[a * 2 + 1]);
+        ix.push(o, o + 1, o + 2, o, o + 2, o + 3);
+      }
+    }
+    if (ix.length > 0) pw.addStaticMesh(new Float32Array(v), new Uint32Array(ix), SURFACES.concrete);
   }
   for (const [x, top, z, bottom] of c.pillars) pw.addStaticBox([x, (top + bottom) / 2, z], [0.7, Math.max(0.25, (top - bottom) / 2), 0.7], 0);
   for (const s of c.tireStacks) pw.addTireStack(s.x, s.y, s.z, s.count);

@@ -11,6 +11,8 @@ function rng(seed: number) {
 }
 
 const _c = new THREE.Color();
+/** 葉の塊の細かさ（遠くに置く木は 0 で面を減らす） */
+let blobDetail = 1;
 
 /** 頂点ごとに色を決める */
 function colorize(g: THREE.BufferGeometry, f: (x: number, y: number, z: number, nx: number, ny: number, nz: number, out: THREE.Color) => void) {
@@ -38,7 +40,7 @@ function trunk(h: number, r0: number, r1: number, color: number, lean = 0, segs 
 
 /** 葉の塊：でこぼこにした多面体。下と内側を暗く */
 function blob(r: number, cx: number, cy: number, cz: number, sy: number, rnd: () => number, dark: THREE.Color, light: THREE.Color, crown: THREE.Vector3, crownH: [number, number]) {
-  const ico = new THREE.IcosahedronGeometry(r, 1);
+  const ico = new THREE.IcosahedronGeometry(r, blobDetail);
   ico.deleteAttribute('normal'); ico.deleteAttribute('uv');
   const g = mergeVertices(ico);
   const p = g.getAttribute('position');
@@ -168,8 +170,9 @@ function palm(seed: number) {
 
 const MAKERS: Record<TreeKind, (seed: number) => THREE.BufferGeometry> = { conifer, broadleaf, umbrella, palm, cypress };
 
-/** 種類ごとに形の違う 3 本 */
-export function treeVariants(kind: TreeKind): THREE.BufferGeometry[] {
+/** 種類ごとに形の違う 3 本。far は遠くに置く木（葉の塊の面を減らす） */
+export function treeVariants(kind: TreeKind, far = false): THREE.BufferGeometry[] {
+  blobDetail = far ? 0 : 1;
   return [11, 23, 37].map((s) => {
     const g = MAKERS[kind](s);
     for (const name of Object.keys(g.attributes)) if (name !== 'position' && name !== 'normal' && name !== 'color') g.deleteAttribute(name);

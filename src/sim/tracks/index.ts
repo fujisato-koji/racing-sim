@@ -81,7 +81,7 @@ function toCourse(j: TrackJson): CourseDef {
       auto: oval ? 'oval' : street ? 'street' : 'circuit',
     },
     laps: j.laps,
-    credit: `Track shape © OpenStreetMap contributors (ODbL), elevation: ${j.source.elevation.replace('国土地理院 標高 API（地理院タイル DEM）', 'GSI Japan elevation API (GSI tiles DEM)')}, retrieved ${j.source.retrieved}. Scenery terrain: Terrain Tiles (${terrainAttribution(j.country).join('; ')})`,
+    credit: `Track shape and buildings © OpenStreetMap contributors (ODbL), elevation: ${j.source.elevation.replace('国土地理院 標高 API（地理院タイル DEM）', 'GSI Japan elevation API (GSI tiles DEM)')}, retrieved ${j.source.retrieved}. Scenery terrain: Terrain Tiles (${terrainAttribution(j.country).join('; ')})`,
   };
 }
 
