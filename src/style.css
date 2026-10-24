@@ -169,3 +169,11 @@ body.touch .hud-notice { font-size: 13px; top: 30%; }
 .credit { font-size: 11px; min-height: 1em; }
 .hud-credit { position: absolute; right: 16px; top: 236px; font-size: 10px; color: rgba(255,255,255,0.75); text-shadow: 0 1px 2px #000; }
 body.touch .hud-credit { top: 142px; }
+
+/* タイムアタックの差（最速の周より速ければ緑、遅ければ赤） */
+.hud-delta { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; margin: 2px 0; }
+.hud-delta.fast { color: #4ade80; }
+.hud-delta.slow { color: #ff6b6b; }
+.hud-invalid { color: #ffb000; font-size: 12px; margin-left: 4px; }
+.telemetry { width: 100%; max-width: 760px; height: auto; display: block; margin: 8px auto; border-radius: 6px; }
+.laps-list { max-height: 160px; overflow-y: auto; }

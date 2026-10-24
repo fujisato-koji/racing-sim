@@ -1,5 +1,6 @@
 // 描画。レースの画面（運転席視点と後方視点、バックミラー）と、メニューの後ろに出す車庫の画面。
 import * as THREE from 'three';
+import { sampleGhost } from '../game/ghost';
 import type { Session } from '../game/session';
 import type { CarParams } from '../sim/params';
 import { carGeometry } from '../sim/params';
@@ -41,6 +42,10 @@ export class GameView {
   private readonly clusterTex = new THREE.CanvasTexture(this.cluster.canvas);
   private clusterMesh: THREE.Group | null = null;
   private chaseInit = false;
+  // タイムアタックのゴースト（最速の周の車。半透明で、ぶつからない）
+  private ghost: CarMesh | null = null;
+  private readonly ghostMat = new THREE.MeshBasicMaterial({ color: 0xa8d4ff, transparent: true, opacity: 0.3, depthWrite: false });
+  showGhost = true;
 
   // 車庫
   private readonly garage = new THREE.Scene();
@@ -209,6 +214,15 @@ export class GameView {
       this.cars.get(pv)!.group.add(grp);
       this.clusterMesh = grp;
     }
+    if (s.attack && pv) {
+      const m = new CarMesh(pv.p);
+      m.group.traverse((o) => {
+        if (o instanceof THREE.Mesh) { o.material = this.ghostMat; o.castShadow = false; o.receiveShadow = false; }
+      });
+      m.group.visible = false;
+      this.ghost = m;
+      this.scene.add(m.group);
+    }
     this.chaseInit = false;
   }
 
@@ -216,6 +230,7 @@ export class GameView {
     if (this.courseMesh) { this.scene.remove(this.courseMesh.group); this.courseMesh.dispose(); this.courseMesh = null; }
     for (const m of this.cars.values()) { this.scene.remove(m.group); m.dispose(); }
     this.cars.clear();
+    if (this.ghost) { this.scene.remove(this.ghost.group); this.ghost.dispose(); this.ghost = null; }
     this.clusterMesh = null;
     this.session = null;
   }
@@ -236,6 +251,7 @@ export class GameView {
     const car = this.cars.get(pv)!;
     const pos = car.group.position, quat = car.group.quaternion;
     const geo = carGeometry(pv.p);
+    this.placeGhost(s, pos);
 
     // 運転席視点か後方視点
     if (this.clusterMesh) this.clusterMesh.visible = this.mode === 'cockpit';
@@ -290,6 +306,20 @@ export class GameView {
       r.clearDepth();
       r.render(this.hudScene, this.hudCam);
     }
+  }
+
+  /** ゴーストを最速の周の同じ時刻の位置に置く。自車に重なるほど薄くする */
+  private placeGhost(s: Session, playerPos: THREE.Vector3) {
+    const g = this.ghost, a = s.attack;
+    if (!g || !a) return;
+    const best = a.best;
+    const t = a.lapTime + s.alpha * s.pw.dt;
+    g.group.visible = this.showGhost && !!best && s.race.state === 'running' && t <= best.time + 0.5;
+    if (!g.group.visible || !best) return;
+    sampleGhost(best, t, g.group.position, g.group.quaternion);
+    const d = g.group.position.distanceTo(playerPos);
+    this.ghostMat.opacity = 0.42 * Math.min(1, Math.max(0, (d - 2) / 8));
+    g.group.visible = this.ghostMat.opacity > 0.01;
   }
 
   // ------------------------------------------------------------ 車庫

@@ -11,13 +11,21 @@ import type { Controls } from '../sim/vehicle';
 import { Vehicle } from '../sim/vehicle';
 import type { Rapier } from '../sim/world';
 import { PhysicsWorld } from '../sim/world';
+import { TimeAttack, carKeyOf } from './timeattack';
 
 export interface SessionConfig {
   course: CourseDef;
   player: CarParams | null;
   opponents: CarParams[];
   laps: number;
+  /** race は AI と競う。attack は 1 台で周回し、最速の周をゴーストとして残す */
+  mode?: 'race' | 'attack';
 }
+
+/** タイムアタックは終わりを決めず、やめるまで周回する */
+const ATTACK_LAPS = 999;
+
+const lapText = (t: number) => { const m = Math.floor(t / 60); return `${m}:${(t - m * 60).toFixed(2).padStart(5, '0')}`; };
 
 const AI_NAMES = ['赤城', '榛名', '妙義', '筑波', '箱根', '碓氷', '六甲'];
 
@@ -27,6 +35,8 @@ export class Session {
   readonly racers: Racer[] = [];
   readonly race: Race;
   readonly player: Racer | null;
+  /** タイムアタックのときだけ */
+  readonly attack: TimeAttack | null;
   private acc = 0;
   /** 描画の補間に使う、最後のステップからの経過の割合 */
   alpha = 0;
@@ -43,7 +53,8 @@ export class Session {
     let slot = 0;
     const cars: { p: CarParams; isPlayer: boolean }[] = [];
     if (cfg.player) cars.push({ p: cfg.player, isPlayer: true });
-    if (hasTrack) for (const p of cfg.opponents) cars.push({ p, isPlayer: false });
+    const attackMode = cfg.mode === 'attack' && hasTrack && !!cfg.player;
+    if (hasTrack && !attackMode) for (const p of cfg.opponents) cars.push({ p, isPlayer: false });
     // プレイヤーは列の後ろから（追い抜く楽しみのため）
     const order = cars.length > 1 && cfg.player ? [...cars.slice(1), cars[0]] : cars;
     for (const c of order) {
@@ -56,8 +67,9 @@ export class Session {
       this.racers.push(makeRacer(name, c.p.color, v, c.isPlayer, ai));
     }
     this.player = this.racers.find((r) => r.isPlayer) ?? null;
-    this.race = new Race(this.course, this.racers, hasTrack ? cfg.laps : 0);
+    this.race = new Race(this.course, this.racers, hasTrack ? (attackMode ? ATTACK_LAPS : cfg.laps) : 0);
     if (this.race.free) for (const r of this.racers) r.vehicle.hold = false;
+    this.attack = attackMode && this.player ? new TimeAttack(this.race, this.player, cfg.course.id, carKeyOf(cfg.player!), cfg.player!.name) : null;
   }
 
   /** 1 フレームぶん進める */
@@ -82,6 +94,12 @@ export class Session {
     }
     this.pw.step();
     this.race.update(dt);
+    if (this.attack) {
+      const before = this.attack.laps.length;
+      this.attack.step();
+      const l = this.attack.laps[before];
+      if (l) this.say(l.best ? `最速の周を更新 ${lapText(l.time)}` : l.valid ? `周のタイム ${lapText(l.time)}` : `周のタイム ${lapText(l.time)}（記録なし）`, 3);
+    }
     for (const r of this.racers) this.watch(r, dt);
   }
 
@@ -102,7 +120,7 @@ export class Session {
       if (r.stuck > 1.5 && r.stuck - dt <= 1.5) this.say('動けないときは R（スマホは「戻す」）でコースに戻せます', 3);
       if (r.upsideDown > 4 || r.stuck > 4) {
         this.respawn(r);
-        this.say('動けないのでコースに戻しました', 2.5);
+        this.say(this.attack ? '動けないのでコースに戻しました。この周は記録にしません' : '動けないのでコースに戻しました', 2.5);
       }
     }
   }
@@ -114,6 +132,10 @@ export class Session {
   /** 経路の近くの、少し手前に置き直す */
   respawn(r: Racer) {
     const v = r.vehicle;
+    if (r.isPlayer && this.attack && this.race.state === 'running') {
+      this.attack.markInvalid();
+      this.say('コースに戻したので、この周は記録にしません', 2.5);
+    }
     const path = this.course.path;
     if (path.length === 0) {
       const g = this.course.grid[0];

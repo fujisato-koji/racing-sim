@@ -136,7 +136,20 @@ export class Hud {
     this.surface.textContent = v.airborne ? '空中' : (w ? SURFACES[w.surface.id].name : '');
 
     const race = s.race;
-    if (race.free) {
+    const a = s.attack;
+    if (a) {
+      const cur = race.state === 'countdown' ? 0 : a.lapTime;
+      const d = a.delta;
+      const dHtml = isFinite(d) && race.state === 'running'
+        ? `<div class="hud-delta ${d > 0 ? 'slow' : 'fast'}">${d > 0 ? '+' : '−'}${Math.abs(d).toFixed(2)}</div>` : '';
+      this.info.innerHTML = `
+        <div class="hud-title">タイムアタック</div>
+        <div>周回 ${pr.laps + 1}</div>
+        <div>今の周 ${formatTime(cur)}${a.invalid ? ' <span class="hud-invalid">記録なし</span>' : ''}</div>
+        ${dHtml}
+        <div>前の周 ${formatTime(pr.lastLap)}</div>
+        <div>最速 ${formatTime(a.best?.time ?? NaN)}</div>`;
+    } else if (race.free) {
       this.info.innerHTML = `<div class="hud-title">${s.course.def.name}</div><div>自由走行</div>`;
     } else {
       const st = race.standings();

@@ -6,6 +6,7 @@ import { GamepadInput } from './game/gamepad';
 import { KeyboardInput } from './game/input';
 import { TouchControls } from './game/touch';
 import { Session } from './game/session';
+import { drawTraces } from './game/telemetry';
 import { GameView } from './render/view';
 import type { CourseCategory, CourseDef } from './sim/course';
 import { COURSES } from './sim/courses';
@@ -68,6 +69,7 @@ class App {
   private laps = COURSES[1].laps;
   private opponents = 5;
   private sameCar = false;
+  private mode: 'race' | 'attack' = 'race';
   private car: CarParams = cloneParams(CAR_PRESETS[2]);
   private custom: CarParams[] = loadCustomCars();
   private finishedAt = -1;
@@ -182,12 +184,19 @@ class App {
     const renderOpts = () => {
       credit.textContent = this.course.credit ?? '';
       if (!this.course.track) { opts.innerHTML = '<p class="note">自由走行（周回と対戦相手はなし）</p>'; return; }
+      const attack = this.mode === 'attack';
       opts.innerHTML = `
+        <label class="field"><span class="field-name">走り方</span><select data-mode>
+          <option value="race" ${attack ? '' : 'selected'}>レース（AI と競う）</option>
+          <option value="attack" ${attack ? 'selected' : ''}>タイムアタック（1 台で周回し、最速の周のゴーストと競う）</option></select></label>
+        ${attack ? '<p class="note">やめるまで周回します。コースに戻した周は記録にしません。最速の周はこのブラウザに残り、次から半透明の車として一緒に走ります。</p>' : `
         <label class="field"><span class="field-name">周回数</span><input type="number" min="1" max="20" value="${this.laps}" data-laps></label>
         <label class="field"><span class="field-name">対戦相手の数</span><input type="number" min="0" max="7" value="${this.opponents}" data-opp></label>
         <label class="field"><span class="field-name">対戦相手の車</span><select data-same>
           <option value="mixed" ${this.sameCar ? '' : 'selected'}>いろいろな車種</option>
-          <option value="same" ${this.sameCar ? 'selected' : ''}>自分と同じ車</option></select></label>`;
+          <option value="same" ${this.sameCar ? 'selected' : ''}>自分と同じ車</option></select></label>`}`;
+      (opts.querySelector('[data-mode]') as HTMLSelectElement).onchange = (e) => { this.mode = (e.target as HTMLSelectElement).value as 'race' | 'attack'; renderOpts(); };
+      if (attack) return;
       (opts.querySelector('[data-laps]') as HTMLInputElement).oninput = (e) => { this.laps = Math.max(1, Math.min(20, Number((e.target as HTMLInputElement).value) || 1)); };
       (opts.querySelector('[data-opp]') as HTMLInputElement).oninput = (e) => { this.opponents = Math.max(0, Math.min(7, Number((e.target as HTMLInputElement).value) || 0)); };
       (opts.querySelector('[data-same]') as HTMLSelectElement).onchange = (e) => { this.sameCar = (e.target as HTMLSelectElement).value === 'same'; };
@@ -325,7 +334,7 @@ class App {
       this.input.reset();
       this.touch.reset();
       this.session?.dispose();
-      this.session = new Session(RAPIER, { course: this.course, player: cloneParams(this.car), opponents, laps: this.laps },
+      this.session = new Session(RAPIER, { course: this.course, player: cloneParams(this.car), opponents, laps: this.laps, mode: this.course.track ? this.mode : 'race' },
         (dt, v) => {
           // キーボードとスマホのどちらでも。キーでハンドルを切っているときはキーを優先
           const k = this.input.update(dt, v.speed), t = this.touch.update(dt, v.speed), g = this.pad;
@@ -351,16 +360,24 @@ class App {
     if (!s || this.resultsShown) return;
     s.paused = !s.paused;
     if (!s.paused) { this.overlay.style.display = 'none'; return; }
+    const a = s.attack;
     const el = this.screen(`
       <h2>一時停止</h2>
+      ${a ? this.telemetryHtml() : ''}
       ${this.prefsHtml()}
+      ${a ? `<label class="field"><span class="field-name">ゴースト</span><input type="checkbox" ${this.view.showGhost ? 'checked' : ''} data-ghost><span></span></label>` : ''}
       <div class="buttons vertical">
         <button class="primary" data-resume>続ける</button>
+        ${a ? '<button data-finish>終える（周のタイムを見る）</button>' : ''}
         <button data-restart>最初からやり直す</button>
         <button data-car>車を変える</button>
         <button data-menu>コースを選び直す</button>
       </div>`, 'panel center');
     this.bindPrefs(el);
+    this.drawTelemetry(el);
+    const gh = el.querySelector('[data-ghost]') as HTMLInputElement | null;
+    gh?.addEventListener('change', () => { this.view.showGhost = gh.checked; });
+    this.on(el, '[data-finish]', () => this.showResults());
     this.on(el, '[data-resume]', () => this.togglePause());
     this.on(el, '[data-restart]', () => this.startRace());
     this.on(el, '[data-car]', () => { this.endSession(); this.showCarSelect(); });
@@ -433,8 +450,41 @@ class App {
     this.view.showCar(this.car);
   }
 
+  /** テレメトリの図（最速の周と、いちばん新しい周） */
+  private telemetryHtml() {
+    const a = this.session?.attack;
+    if (!a || (!a.bestTrace && !a.lastTrace)) return '<p class="note">1 周を走りきると、ここに速さ、アクセルとブレーキ、最速の周との差が出ます。</p>';
+    return `<canvas class="telemetry" width="760" height="300" data-telemetry></canvas>
+      <p class="note"><span style="color:#5ab0ff">━</span> 最速の周　<span style="color:#ffb000">━</span> いちばん新しい周　<span style="color:#3fd06a">━</span> アクセル　<span style="color:#ff5a5a">━</span> ブレーキ　下の段は最速の周との差（上が遅れ）</p>`;
+  }
+
+  private drawTelemetry(el: HTMLElement) {
+    const a = this.session?.attack;
+    const cv = el.querySelector('[data-telemetry]') as HTMLCanvasElement | null;
+    if (a && cv) drawTraces(cv, a.bestTrace, a.lastTrace);
+  }
+
+  private showAttackResults() {
+    const s = this.session!;
+    const a = s.attack!;
+    this.resultsShown = true;
+    s.paused = true;
+    const rows = a.laps.map((l, i) => `<tr class="${l.best ? 'me' : ''}"><td>${i + 1}</td><td>${formatTime(l.time)}</td><td>${l.best ? '最速を更新' : l.valid ? '' : '記録なし（コースに戻した）'}</td></tr>`).join('');
+    const el = this.screen(`
+      <h2>タイムアタック <span class="sub">${s.course.def.name}、${s.player!.vehicle.p.name}</span></h2>
+      <p>このブラウザでの最速 <b>${formatTime(a.best?.time ?? NaN)}</b></p>
+      ${a.laps.length ? `<div class="laps-list"><table class="results"><tr><th>周</th><th>タイム</th><th></th></tr>${rows}</table></div>` : '<p class="note">走りきった周はありません。</p>'}
+      ${this.telemetryHtml()}
+      <div class="buttons"><button data-menu>コースを選び直す</button><button data-car>車を変える</button><button class="primary" data-again>もう一度</button></div>`, 'panel center');
+    this.drawTelemetry(el);
+    this.on(el, '[data-again]', () => this.startRace());
+    this.on(el, '[data-car]', () => { this.endSession(); this.showCarSelect(); });
+    this.on(el, '[data-menu]', () => { this.endSession(); this.showCourse(); });
+  }
+
   private showResults() {
     const s = this.session!;
+    if (s.attack) { this.showAttackResults(); return; }
     this.resultsShown = true;
     const st = s.race.standings();
     const el = this.screen(`
