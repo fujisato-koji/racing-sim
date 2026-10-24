@@ -11,6 +11,8 @@ export const isTouch = (() => {
 })();
 
 let forced = false;
+/** 回す向き。false は時計回りに 90°（端末の右の縁が上）、true は反時計回りに 90°（左の縁が上） */
+let ccw = false;
 const listeners: (() => void)[] = [];
 
 /** 画面を回しているか */
@@ -24,7 +26,17 @@ export function viewSize() {
 
 /** 画面の座標（clientX、clientY）を、ゲームの画面の座標に直す（回しているときは 90° 戻す） */
 export function toView(cx: number, cy: number): [number, number] {
-  return forced ? [cy, window.innerWidth - cx] : [cx, cy];
+  if (!forced) return [cx, cy];
+  return ccw ? [window.innerHeight - cy, cx] : [cy, window.innerWidth - cx];
+}
+
+/** 縦の画面に横向きで描くとき、どちらの縁を上にするか（1 は端末の右の縁、−1 は左の縁）。持ち方に合わせて決める */
+export function setLandscapeSide(side: 1 | -1) {
+  const next = side < 0;
+  if (next === ccw) return;
+  ccw = next;
+  document.body.classList.toggle('forced-ccw', ccw);
+  for (const f of listeners) f();
 }
 
 export function onLayoutChange(f: () => void) { listeners.push(f); }

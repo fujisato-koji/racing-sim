@@ -94,6 +94,9 @@ export class TouchControls {
     window.addEventListener('deviceorientation', (e) => this.onOrientation(e));
   }
 
+  /** 端末の座標で見た「上」の向きの x（正なら端末の右の縁が上、負なら左の縁が上） */
+  upX = 0;
+
   /** 傾きが届いているか（届かない端末では ◀ ▶ のボタンで切る） */
   get tilt() { return this.tiltSeen; }
 
@@ -102,13 +105,12 @@ export class TouchControls {
     const b = e.beta * DEG, g = e.gamma * DEG;
     // 端末の座標で見た「上」の向き（x 右、y 上、z 画面の外）
     const ux = -Math.sin(g) * Math.cos(b), uy = Math.sin(b);
-    // 画面の向きに合わせて回す
-    const so = (screen.orientation?.angle ?? (window as unknown as { orientation?: number }).orientation ?? 0) * DEG;
-    const sx = ux * Math.cos(so) - uy * Math.sin(so), sy = ux * Math.sin(so) + uy * Math.cos(so);
     // ほぼ水平に置いたときは向きが定まらないので前の値を使う
-    if (Math.hypot(sx, sy) < 0.25) return;
-    // 時計回り（右に切る）を正。中央は合わせた位置からの差で見るので、画面を回していても向きは崩れない
-    this.raw = Math.atan2(-sx, sy);
+    if (Math.hypot(ux, uy) < 0.25) return;
+    this.upX = ux;
+    // 時計回り（右に切る）を正。端末の座標のまま測る（画面の向きの角度で回すと、切っている途中に OS が画面を回したとき 90° 跳ぶ）。
+    // 中央は合わせた位置からの差で見るので、どちらの向きに持っても同じ
+    this.raw = Math.atan2(-ux, uy);
     if (!this.tiltSeen) {
       this.tiltSeen = true;
       this.root.classList.add('has-tilt');

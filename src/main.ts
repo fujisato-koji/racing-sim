@@ -19,7 +19,7 @@ import { cloneParams, computeDerived } from './sim/params';
 import { CAR_PRESETS } from './sim/presets';
 import { Hud, formatTime } from './ui/hud';
 import { logoSvg } from './ui/logo';
-import { initLayout, isTouch, requestLandscape, viewSize } from './ui/layout';
+import { initLayout, isTouch, requestLandscape, setLandscapeSide, viewSize } from './ui/layout';
 import type { Globe } from './render/globe';
 import { loadScenery } from './render/scenery';
 import { themeOf } from './render/themes';
@@ -151,6 +151,15 @@ class App {
     };
     this.input.onAction = act;
     window.addEventListener('keydown', (e) => this.onMenuKey(e));
+    // 走っている間に OS が画面を回したら、画面の回転の固定を勧める（1 回だけ）
+    const onRotate = () => {
+      const s = this.session;
+      if (!isTouch || !s || s.paused || this.rotateTipShown || s.race.state === 'countdown') return;
+      this.rotateTipShown = true;
+      s.say("Tip: turn on your phone's rotation lock so the screen stays put while you steer.", 6);
+    };
+    window.addEventListener('orientationchange', onRotate);
+    screen.orientation?.addEventListener?.('change', onRotate);
     // メニューの効果音：押したボタンの役割で鳴らし分ける
     overlay.addEventListener('click', (e) => {
       const b = (e.target as HTMLElement).closest('button');
@@ -191,9 +200,28 @@ class App {
     }
   }
 
+  private sideTime = 0;
+  private rotateTipShown = false;
+
+  /**
+   * 縦の画面に横向きで描くとき、持ち方に合わせて上にする縁を決める。
+   * 走っている間は変えない（切ったときの傾きで裏返らないように）。メニューでは、0.5 秒続けて反対に持ったら変える
+   */
+  private updateLandscapeSide(dt: number) {
+    if (!isTouch || !this.touch.tilt) return;
+    const racing = this.session && !this.session.paused && !this.resultsShown;
+    if (racing) { this.sideTime = 0; return; }
+    const ux = this.touch.upX;
+    const want: 1 | -1 | 0 = ux > 0.55 ? 1 : ux < -0.55 ? -1 : 0;
+    const now = document.body.classList.contains('forced-ccw') ? -1 : 1;
+    this.sideTime = want !== 0 && want !== now ? this.sideTime + dt : 0;
+    if (this.sideTime > 0.5) { setLandscapeSide(want as 1 | -1); this.sideTime = 0; }
+  }
+
   private frame(now: number) {
     const dt = Math.min(0.1, (now - this.last) / 1000);
     this.last = now;
+    this.updateLandscapeSide(dt);
     this.updateFades();
     const s = this.session;
     this.pad.poll();
@@ -312,7 +340,7 @@ class App {
       </div>
       <div class="title-prefs panel" hidden>${this.prefsHtml()}</div>
       <p class="title-foot"><span class="count">${real}</span> real circuits on 4 continents. ${isTouch
-        ? 'Hold the phone in landscape and tilt it to steer.'
+        ? 'Hold the phone in landscape and tilt it to steer. Turning on rotation lock keeps the screen still.'
         : 'Keyboard or gamepad. ← → steer, ↑ throttle, ↓ brake.'} Tap a glowing circuit to jump in.</p>`, 'title-screen');
     this.bindPrefs(el);
     const prefs = el.querySelector('.title-prefs') as HTMLElement;
