@@ -302,7 +302,14 @@ class App {
     this.on(el, '[data-next]', () => this.showCarSelect());
   }
 
-  /** 説明のカードを、選んだ柱の横に置く（柱が無いコースは地球儀の横） */
+  /** いまのカードの置き場所（候補の番号）。ほかの置き場所がはっきり良くなるまで動かさない */
+  private cardSlot = -1;
+  private cardFor = '';
+
+  /**
+   * 説明のカードを、選んだ柱の近くの、ほかの柱をなるべく隠さない所に置く（柱が無いコースは地球儀の横）。
+   * 候補は柱の左右と上下の 8 か所と画面の右上と右下。隠す柱の数（表側は重く、裏側は軽く）と、柱からの遠さで比べる
+   */
   private placeCard() {
     const g = this.globe, card = this.card, line = this.leader, panel = this.coursePanel;
     if (!g || !card || !line || !panel) return;
@@ -310,24 +317,53 @@ class App {
     const cw = card.offsetWidth, ch = card.offsetHeight;
     const left = panel.offsetLeft + panel.offsetWidth + 14;
     const s = PLACES[this.course.id] ? g.screenOf(this.course.id) : null;
+    // 回している間はカードを薄くして、後ろの柱を見えるようにする
+    card.classList.toggle('dragging', g.dragging);
     let x: number, y: number;
+    const clampX = (v: number) => Math.max(left, Math.min(w - 12 - cw, v));
+    const clampY = (v: number) => Math.max(12, Math.min(h - 12 - ch, v));
     if (s) {
-      x = s.x + 46;
-      if (x + cw > w - 12) x = s.x - 46 - cw;
-      y = s.y - ch * 0.35;
+      const gap = 34;
+      const cands: [number, number][] = [
+        [s.x + gap, s.y - ch * 0.35], [s.x - gap - cw, s.y - ch * 0.35],
+        [s.x + gap, s.y - ch - gap * 0.6], [s.x - gap - cw, s.y - ch - gap * 0.6],
+        [s.x + gap, s.y + gap * 0.6], [s.x - gap - cw, s.y + gap * 0.6],
+        [s.x - cw / 2, s.y - ch - gap], [s.x - cw / 2, s.y + gap],
+        [w - 12 - cw, 12], [w - 12 - cw, h - 12 - ch],
+      ].map(([cx, cy]) => [clampX(cx), clampY(cy)]);
+      const others = g.screenAll().filter((m) => m.id !== this.course.id);
+      const pad = 16;
+      const score = (cx: number, cy: number) => {
+        let sc = 0;
+        // 選んだ柱そのものは隠さない
+        if (s.x > cx - pad && s.x < cx + cw + pad && s.y > cy - pad && s.y < cy + ch + pad) sc += 1000;
+        for (const m of others) if (m.x > cx - pad && m.x < cx + cw + pad && m.y > cy - pad && m.y < cy + ch + pad) sc += m.front ? 10 : 1;
+        const dx = Math.max(cx - s.x, 0, s.x - (cx + cw)), dy = Math.max(cy - s.y, 0, s.y - (cy + ch));
+        return sc + Math.hypot(dx, dy) / 120;
+      };
+      if (this.cardFor !== this.course.id) { this.cardSlot = -1; this.cardFor = this.course.id; }
+      let best = 0, bestScore = Infinity;
+      cands.forEach(([cx, cy], i) => { const v = score(cx, cy); if (v < bestScore) { bestScore = v; best = i; } });
+      // 今の置き場所が、いちばん良い所と比べて柱 1 本分より悪くなければそのまま
+      if (this.cardSlot >= 0 && score(...cands[this.cardSlot]) <= bestScore + 6) best = this.cardSlot;
+      this.cardSlot = best;
+      [x, y] = cands[best];
     } else {
-      x = w * g.centerX + w * 0.12;
-      y = h / 2 - ch / 2;
+      x = clampX(w * g.centerX + w * 0.12);
+      y = clampY(h / 2 - ch / 2);
     }
-    x = Math.max(left, Math.min(w - 12 - cw, x));
-    y = Math.max(12, Math.min(h - 12 - ch, y));
+    // 置き場所が変わったときは、少しずつ動かす
+    const prev = card.dataset.pos ? card.dataset.pos.split(',').map(Number) : [x, y];
+    const k = Math.hypot(prev[0] - x, prev[1] - y) > 400 ? 1 : 0.25;
+    x = prev[0] + (x - prev[0]) * k; y = prev[1] + (y - prev[1]) * k;
+    card.dataset.pos = `${x},${y}`;
     card.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
     card.classList.toggle('behind', !!s && !s.front);
-    // 柱の頭からカードの縁へ細い線
+    // 柱の頭からカードのいちばん近い縁へ細い線
     if (s && s.front) {
-      const tx = x < s.x ? x + cw : x, ty = Math.max(y + 18, Math.min(y + ch - 18, s.y));
+      const tx = Math.max(x, Math.min(x + cw, s.x)), ty = Math.max(y, Math.min(y + ch, s.y));
       const len = Math.hypot(tx - s.x, ty - s.y), ang = Math.atan2(ty - s.y, tx - s.x);
-      line.style.display = '';
+      line.style.display = len > 4 ? '' : 'none';
       line.style.width = `${len.toFixed(1)}px`;
       line.style.transform = `translate(${s.x.toFixed(1)}px, ${s.y.toFixed(1)}px) rotate(${ang.toFixed(4)}rad)`;
     } else {

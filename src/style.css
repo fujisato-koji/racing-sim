@@ -219,3 +219,8 @@ body.touch .tagline { font-size: 11px; margin-bottom: 8px; }
 .title-start { justify-content: flex-start; margin: 4px 0 14px; }
 .title-start button { padding: 11px 34px; font-size: 16px; }
 body.touch .lead { display: none; }
+.globe-card.dragging { opacity: 0.18; pointer-events: none; }
+/* スマホは場所が狭いので、カードは名前と数字とボタンだけ */
+body.touch .globe-card canvas, body.touch .globe-card .gc-blurb, body.touch .globe-card .gc-mood { display: none; }
+body.touch .globe-card { width: 200px; }
+body.touch .gc-stats { margin: 4px 0 8px; }

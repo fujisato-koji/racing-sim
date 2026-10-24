@@ -235,6 +235,14 @@ export class Globe {
     this.vYaw = this.vPitch = 0;
   }
 
+  /** ドラッグかピンチで回している最中か */
+  get dragging() { return this.drag !== null && this.drag.moved > 4 || this.pinch0 > 0; }
+
+  /** すべての柱の頭の、画面の上の位置 */
+  screenAll() {
+    return this.markers.map((o) => ({ id: o.m.id, ...this.screenOf(o.m.id)! }));
+  }
+
   /** 柱の頭の、画面の上の位置（CSS の画素）。裏側にあれば front が false */
   screenOf(id: string) {
     const o = this.markers.find((x) => x.m.id === id);
