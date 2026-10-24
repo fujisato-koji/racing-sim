@@ -22,6 +22,11 @@ export function viewSize() {
   return forced ? { w: h, h: w } : { w, h };
 }
 
+/** 画面の座標（clientX、clientY）を、ゲームの画面の座標に直す（回しているときは 90° 戻す） */
+export function toView(cx: number, cy: number): [number, number] {
+  return forced ? [cy, window.innerWidth - cx] : [cx, cy];
+}
+
 export function onLayoutChange(f: () => void) { listeners.push(f); }
 
 function apply() {

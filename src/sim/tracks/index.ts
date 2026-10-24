@@ -60,6 +60,8 @@ function toCourse(j: TrackJson): CourseDef {
   return {
     id: j.id,
     name: j.nameJa,
+    nameEn: j.name,
+    rise,
     description: `${TYPE_NAME[j.type]}、${j.country}、1 周 ${(j.lengthOfficial / 1000).toFixed(3)} km、高低差 ${rise.toFixed(0)} m${j.banking ? `、バンク ${j.banking.turns}°` : ''}`,
     category: j.type as CourseCategory,
     country: j.country,

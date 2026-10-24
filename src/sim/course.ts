@@ -57,6 +57,10 @@ export interface CourseDef {
   terrainFromTrack?: boolean;
   /** データの出どころ（画面に出す） */
   credit?: string;
+  /** 英語の名前（実在のコース） */
+  nameEn?: string;
+  /** 高低差 [m]（実在のコース） */
+  rise?: number;
 }
 
 export interface PathSample {

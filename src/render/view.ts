@@ -9,6 +9,7 @@ import { onLayoutChange, viewSize } from '../ui/layout';
 import { Gauges } from '../ui/gauges';
 import { CarMesh } from './car-mesh';
 import { CourseMesh } from './course-mesh';
+import { Globe } from './globe';
 import { quality } from './quality';
 import type { SkySettings } from './sky';
 import { DAY, Sky, sunDirection } from './sky';
@@ -52,6 +53,9 @@ export class GameView {
   private readonly garageCam = new THREE.PerspectiveCamera(35, 1, 0.1, 100);
   private garageCar: CarMesh | null = null;
   private garageAngle = 0;
+  // コースを選ぶ画面の地球儀
+  private globe: Globe | null = null;
+  private globeOn = false;
   // 描く画素の数の自動調整
   private basePR = 1;
   private prScale = 1;
@@ -332,7 +336,21 @@ export class GameView {
     this.garage.add(this.garageCar.group);
   }
 
+  /** コースを選ぶ画面の地球儀を出す（はじめて出すときに作る） */
+  showGlobe(): Globe {
+    this.globe ??= new Globe();
+    this.globe.attach(this.renderer.domElement);
+    this.globeOn = true;
+    return this.globe;
+  }
+
+  hideGlobe() {
+    this.globe?.detach();
+    this.globeOn = false;
+  }
+
   renderGarage(dt: number) {
+    if (this.globeOn && this.globe) { this.globe.render(this.renderer, dt); return; }
     this.garageAngle += dt * 0.35;
     if (this.garageCar) this.garageCar.group.rotation.y = this.garageAngle;
     const L = this.garageCar?.p.body.length ?? 4.3;

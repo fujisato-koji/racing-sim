@@ -10,18 +10,24 @@ import { drawTraces } from './game/telemetry';
 import { GameView } from './render/view';
 import type { CourseCategory, CourseDef } from './sim/course';
 import { COURSES } from './sim/courses';
+import { PLACES } from './sim/tracks/places';
 import type { CarParams } from './sim/params';
 import { cloneParams, computeDerived } from './sim/params';
 import { CAR_PRESETS } from './sim/presets';
 import { Hud, formatTime } from './ui/hud';
-import { initLayout, isTouch, requestLandscape } from './ui/layout';
+import { initLayout, isTouch, requestLandscape, viewSize } from './ui/layout';
+import type { Globe } from './render/globe';
 import type { QualityPref } from './render/quality';
 import { quality } from './render/quality';
 import { buildSettingsForm, renderDerived } from './ui/settings';
 import { exportCar, importCar, loadCustomCars, saveCustomCars } from './ui/storage';
 
+/** 種類ごとの色（地球儀の柱、一覧の点、説明のカード） */
+const CAT_COLOR: Record<CourseCategory, string> = { original: '#e8ecf2', international: '#ffb000', technical: '#3fd06a', street: '#ff4fa3', oval: '#3fc3ff' };
+const CAT_NAME: Record<CourseCategory, string> = { original: 'オリジナル', international: '国際サーキット', technical: 'テクニカル', street: '市街地', oval: 'オーバル' };
+
 /** コースの形の小さな図（制御点を結ぶ） */
-function drawThumb(cv: HTMLCanvasElement, c: CourseDef) {
+function drawThumb(cv: HTMLCanvasElement, c: CourseDef, color = '#e8ecf2') {
   const g = cv.getContext('2d')!;
   const W = cv.width, H = cv.height;
   g.clearRect(0, 0, W, H);
@@ -35,10 +41,12 @@ function drawThumb(cv: HTMLCanvasElement, c: CourseDef) {
   const x0 = Math.min(...xs), x1 = Math.max(...xs), z0 = Math.min(...zs), z1 = Math.max(...zs);
   const sc = Math.min((W - 16) / (x1 - x0), (H - 16) / (z1 - z0));
   const ox = (W - (x1 - x0) * sc) / 2, oz = (H - (z1 - z0) * sc) / 2;
-  g.strokeStyle = '#e8ecf2'; g.lineWidth = 2.5; g.lineJoin = 'round';
+  g.strokeStyle = color; g.lineWidth = 2.5; g.lineJoin = 'round';
+  g.shadowColor = color; g.shadowBlur = 6;
   g.beginPath();
   pts.forEach(([x, z], i) => { const px = ox + (x - x0) * sc, pz = oz + (z - z0) * sc; if (i === 0) g.moveTo(px, pz); else g.lineTo(px, pz); });
   g.closePath(); g.stroke();
+  g.shadowBlur = 0;
   const [sx, sz] = pts[0];
   g.fillStyle = '#ffb000'; g.beginPath(); g.arc(ox + (sx - x0) * sc, oz + (sz - z0) * sc, 4, 0, Math.PI * 2); g.fill();
 }
@@ -130,12 +138,15 @@ class App {
       }
     } else {
       this.view.renderGarage(dt);
+      if (this.globe) this.placeCard();
     }
     this.sound.update(s, this.view.mode === 'cockpit');
     requestAnimationFrame((t) => this.frame(t));
   }
 
   private screen(html: string, cls = 'panel') {
+    // 地球儀はコースを選ぶ画面だけ
+    if (this.globe) { this.view.hideGlobe(); this.globe = null; this.card = null; this.leader = null; }
     this.overlay.innerHTML = `<div class="${cls}">${html}</div>`;
     this.overlay.style.display = '';
     return this.overlay.firstElementChild as HTMLElement;
@@ -167,29 +178,46 @@ class App {
 
   // ------------------------------------------------------------ コース
   private courseTab: CourseCategory = 'original';
+  private globe: Globe | null = null;
+  private card: HTMLElement | null = null;
+  private leader: HTMLElement | null = null;
+  private coursePanel: HTMLElement | null = null;
 
   private showCourse() {
     this.courseTab = this.course.category ?? 'original';
-    const tabs: [CourseCategory, string][] = [['original', 'オリジナル'], ['international', '国際サーキット'], ['technical', 'テクニカル'], ['street', '市街地'], ['oval', 'オーバル']];
+    const tabs: [CourseCategory, string][] = (['original', 'international', 'technical', 'street', 'oval'] as CourseCategory[]).map((k) => [k, CAT_NAME[k]]);
     const el = this.screen(`
       <h2>1. コースを選ぶ</h2>
-      <div class="tabs">${tabs.map(([k, n]) => `<button class="tab ${k === this.courseTab ? 'selected' : ''}" data-tab="${k}">${n}</button>`).join('')}</div>
-      <div class="course-grid"></div>
+      <div class="tabs">${tabs.map(([k, n]) => `<button class="tab ${k === this.courseTab ? 'selected' : ''}" data-tab="${k}"><span class="dot" style="background:${CAT_COLOR[k]}"></span>${n}</button>`).join('')}</div>
+      <div class="course-list"></div>
       <p class="note credit"></p>
       <div class="race-options"></div>
       <div class="buttons"><button data-back>戻る</button><button class="primary" data-next>次へ（車を選ぶ）</button></div>`, 'panel course-panel');
-    const grid = el.querySelector('.course-grid') as HTMLElement;
+    this.coursePanel = el;
+    const list = el.querySelector('.course-list') as HTMLElement;
     const credit = el.querySelector('.credit') as HTMLElement;
     const opts = el.querySelector('.race-options') as HTMLElement;
+
+    // 地球儀と、選んだコースの説明のカード
+    const globe = this.view.showGlobe();
+    this.globe = globe;
+    globe.setMarkers(COURSES.filter((c) => PLACES[c.id]).map((c) => ({ id: c.id, lat: PLACES[c.id].lat, lon: PLACES[c.id].lon, color: CAT_COLOR[c.category ?? 'original'] })));
+    this.leader = document.createElement('div');
+    this.leader.className = 'globe-leader';
+    this.leader.style.pointerEvents = 'none';
+    this.card = document.createElement('div');
+    this.card.className = 'globe-card';
+    this.overlay.append(this.leader, this.card);
+
     const renderOpts = () => {
       credit.textContent = this.course.credit ?? '';
       if (!this.course.track) { opts.innerHTML = '<p class="note">自由走行（周回と対戦相手はなし）</p>'; return; }
       const attack = this.mode === 'attack';
       opts.innerHTML = `
         <label class="field"><span class="field-name">走り方</span><select data-mode>
-          <option value="race" ${attack ? '' : 'selected'}>レース（AI と競う）</option>
-          <option value="attack" ${attack ? 'selected' : ''}>タイムアタック（1 台で周回し、最速の周のゴーストと競う）</option></select></label>
-        ${attack ? '<p class="note">やめるまで周回します。コースに戻した周は記録にしません。最速の周はこのブラウザに残り、次から半透明の車として一緒に走ります。</p>' : `
+          <option value="race" ${attack ? '' : 'selected'}>AI とレース</option>
+          <option value="attack" ${attack ? 'selected' : ''}>タイムアタック</option></select></label>
+        ${attack ? '<p class="note">1 台で、やめるまで周回します。コースに戻した周は記録にしません。最速の周はこのブラウザに残り、次から半透明の車として一緒に走ります。</p>' : `
         <label class="field"><span class="field-name">周回数</span><input type="number" min="1" max="20" value="${this.laps}" data-laps></label>
         <label class="field"><span class="field-name">対戦相手の数</span><input type="number" min="0" max="7" value="${this.opponents}" data-opp></label>
         <label class="field"><span class="field-name">対戦相手の車</span><select data-same>
@@ -201,30 +229,96 @@ class App {
       (opts.querySelector('[data-opp]') as HTMLInputElement).oninput = (e) => { this.opponents = Math.max(0, Math.min(7, Number((e.target as HTMLInputElement).value) || 0)); };
       (opts.querySelector('[data-same]') as HTMLSelectElement).onchange = (e) => { this.sameCar = (e.target as HTMLSelectElement).value === 'same'; };
     };
-    const renderGrid = () => {
-      const list = COURSES.filter((c) => (c.category ?? 'original') === this.courseTab);
-      grid.innerHTML = list.map((c) => `
-        <button class="course-card ${c.id === this.course.id ? 'selected' : ''}" data-course="${c.id}">
-          <canvas width="160" height="100" data-thumb="${c.id}"></canvas>
-          <div class="card-title">${c.name}</div><div class="card-text">${c.description}</div>
-        </button>`).join('');
-      grid.querySelectorAll<HTMLCanvasElement>('canvas[data-thumb]').forEach((cv) => drawThumb(cv, COURSES.find((c) => c.id === cv.dataset.thumb)!));
-      this.on(grid, '[data-course]', (b) => {
-        this.course = COURSES.find((c) => c.id === b.dataset.course)!;
-        this.laps = this.course.laps || 3;
-        grid.querySelectorAll('.course-card').forEach((c) => c.classList.toggle('selected', c === b));
-        renderOpts();
-      });
+    const renderCard = () => {
+      const c = this.course, pl = PLACES[c.id], cat = c.category ?? 'original', color = CAT_COLOR[cat];
+      const stats = pl && c.lengthOfficial ? `<div class="gc-stats">
+          <div><b>${(c.lengthOfficial / 1000).toFixed(3)}</b><small>km（1 周）</small></div>
+          <div><b>${(c.rise ?? 0).toFixed(0)}</b><small>m（高低差）</small></div>
+          <div><b>${pl.opened}</b><small>年（開場）</small></div></div>` : '';
+      const card = this.card!;
+      card.innerHTML = `
+        <div class="gc-cat" style="color:${color}">${CAT_NAME[cat]}</div>
+        <div class="gc-name">${c.name}${c.nameEn ? `<span>${c.nameEn}</span>` : ''}</div>
+        <div class="gc-place">${pl ? pl.place : 'このゲームのために作ったコース'}</div>
+        <canvas width="440" height="220" data-card-thumb></canvas>
+        ${stats}
+        <p class="gc-blurb">${pl ? pl.blurb : c.description}</p>
+        <button class="primary" data-card-next>このコースで次へ</button>`;
+      drawThumb(card.querySelector('[data-card-thumb]') as HTMLCanvasElement, c, color);
+      (card.querySelector('[data-card-next]') as HTMLElement).onclick = () => this.showCarSelect();
+      card.classList.remove('pop');
+      void card.offsetWidth;
+      card.classList.add('pop');
     };
-    renderGrid();
+    const choose = (c: CourseDef, fly = true) => {
+      this.course = c;
+      this.laps = c.laps || 3;
+      for (const r of list.querySelectorAll<HTMLElement>('.course-row')) r.classList.toggle('selected', r.dataset.course === c.id);
+      globe.select(PLACES[c.id] ? c.id : null, fly);
+      renderOpts();
+      renderCard();
+    };
+    const renderList = () => {
+      const items = COURSES.filter((c) => (c.category ?? 'original') === this.courseTab);
+      list.innerHTML = items.map((c) => `
+        <button class="course-row ${c.id === this.course.id ? 'selected' : ''}" data-course="${c.id}">
+          <span class="dot" style="background:${CAT_COLOR[c.category ?? 'original']}"></span>
+          <span class="row-name">${c.name}</span>
+          <span class="row-sub">${c.country ?? ''}${c.lengthOfficial ? ` ${(c.lengthOfficial / 1000).toFixed(1)} km` : ''}</span>
+        </button>`).join('');
+      this.on(list, '[data-course]', (b) => choose(COURSES.find((c) => c.id === b.dataset.course)!));
+    };
+    const setTab = (t: CourseCategory) => {
+      this.courseTab = t;
+      for (const x of el.querySelectorAll<HTMLElement>('.tab')) x.classList.toggle('selected', x.dataset.tab === t);
+      renderList();
+    };
+    globe.onPick = (id) => {
+      const c = COURSES.find((x) => x.id === id);
+      if (!c) return;
+      if ((c.category ?? 'original') !== this.courseTab) setTab(c.category ?? 'original');
+      choose(c);
+    };
+    renderList();
     renderOpts();
-    this.on(el, '[data-tab]', (b) => {
-      this.courseTab = b.dataset.tab as CourseCategory;
-      el.querySelectorAll('.tab').forEach((t) => t.classList.toggle('selected', t === b));
-      renderGrid();
-    });
+    renderCard();
+    globe.select(PLACES[this.course.id] ? this.course.id : null);
+    this.on(el, '[data-tab]', (b) => setTab(b.dataset.tab as CourseCategory));
     this.on(el, '[data-back]', () => this.showTitle());
     this.on(el, '[data-next]', () => this.showCarSelect());
+  }
+
+  /** 説明のカードを、選んだ柱の横に置く（柱が無いコースは地球儀の横） */
+  private placeCard() {
+    const g = this.globe, card = this.card, line = this.leader, panel = this.coursePanel;
+    if (!g || !card || !line || !panel) return;
+    const { w, h } = viewSize();
+    const cw = card.offsetWidth, ch = card.offsetHeight;
+    const left = panel.offsetLeft + panel.offsetWidth + 14;
+    const s = PLACES[this.course.id] ? g.screenOf(this.course.id) : null;
+    let x: number, y: number;
+    if (s) {
+      x = s.x + 46;
+      if (x + cw > w - 12) x = s.x - 46 - cw;
+      y = s.y - ch * 0.35;
+    } else {
+      x = w * g.centerX + w * 0.12;
+      y = h / 2 - ch / 2;
+    }
+    x = Math.max(left, Math.min(w - 12 - cw, x));
+    y = Math.max(12, Math.min(h - 12 - ch, y));
+    card.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
+    card.classList.toggle('behind', !!s && !s.front);
+    // 柱の頭からカードの縁へ細い線
+    if (s && s.front) {
+      const tx = x < s.x ? x + cw : x, ty = Math.max(y + 18, Math.min(y + ch - 18, s.y));
+      const len = Math.hypot(tx - s.x, ty - s.y), ang = Math.atan2(ty - s.y, tx - s.x);
+      line.style.display = '';
+      line.style.width = `${len.toFixed(1)}px`;
+      line.style.transform = `translate(${s.x.toFixed(1)}px, ${s.y.toFixed(1)}px) rotate(${ang.toFixed(4)}rad)`;
+    } else {
+      line.style.display = 'none';
+    }
   }
 
   // ------------------------------------------------------------ 車
