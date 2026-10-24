@@ -1,55 +1,59 @@
-// 車の見た目。諸元の寸法から箱を組み合わせて作る（衝突形状と同じ寸法）。
+// 車の見た目。諸元の寸法から車体の面を作り（car-body.ts）、ライト、ミラー、羽根、タイヤとホイールを付ける。
 import * as THREE from 'three';
-import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { CarParams } from '../sim/params';
 import { carGeometry } from '../sim/params';
 import type { Vehicle } from '../sim/vehicle';
+import { buildBody } from './car-body';
+import { quality } from './quality';
 
-const tireMat = new THREE.MeshStandardMaterial({ color: 0x161616, roughness: 0.9 });
-const rimMat = new THREE.MeshStandardMaterial({ color: 0xb8bcc2, metalness: 0.8, roughness: 0.35 });
-const glassMat = new THREE.MeshStandardMaterial({ color: 0x1b2633, metalness: 0.6, roughness: 0.15 });
-const darkMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1c, roughness: 0.8 });
-const headMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff4d6, emissiveIntensity: 0.6 });
-
-function box(w: number, h: number, d: number, mat: THREE.Material, x: number, y: number, z: number, round = 0.04) {
-  if (w <= 0.01 || h <= 0.01 || d <= 0.01) return null;
-  const g = round > 0 ? new RoundedBoxGeometry(w, h, d, 2, Math.min(round, w / 2, h / 2, d / 2) * 0.99) : new THREE.BoxGeometry(w, h, d);
-  const m = new THREE.Mesh(g, mat);
-  m.position.set(x, y, z);
-  m.castShadow = true;
-  m.receiveShadow = true;
-  return m;
-}
-
-/** 下が広く上が狭い台形の箱（窓まわり） */
-function cabinGeometry(wb: number, wt: number, y0: number, y1: number, zf: number, zr: number, slopeF: number, slopeR: number) {
-  const tf = zf + slopeF, tr = zr - slopeR;
-  const v = [
-    -wb / 2, y0, zf, wb / 2, y0, zf, wb / 2, y0, zr, -wb / 2, y0, zr,
-    -wt / 2, y1, tf, wt / 2, y1, tf, wt / 2, y1, tr, -wt / 2, y1, tr,
-  ];
-  // 外向きの面（内側からは見えないので、運転席の視点では窓の外が見える）
-  const idx = [0, 5, 1, 0, 4, 5, 1, 6, 2, 1, 5, 6, 2, 7, 3, 2, 6, 7, 3, 4, 0, 3, 7, 4, 4, 6, 5, 4, 7, 6];
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(v, 3));
-  g.setIndex(idx);
-  // 面ごとに法線が分かれるよう、頂点を分けてから法線を出す
-  const ng = g.toNonIndexed();
-  ng.computeVertexNormals();
-  return ng;
-}
-
-function beam(a: THREE.Vector3, b: THREE.Vector3, r: number, mat: THREE.Material) {
-  const len = a.distanceTo(b);
-  const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, 6), mat);
-  m.position.copy(a).add(b).multiplyScalar(0.5);
-  m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize());
-  return m;
-}
+const tireMat = new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.92 });
+const rimMat = new THREE.MeshStandardMaterial({ color: 0xc4c8cf, metalness: 0.85, roughness: 0.3 });
+const discMat = new THREE.MeshStandardMaterial({ color: 0x6d6f73, metalness: 0.7, roughness: 0.5 });
+const caliperMat = new THREE.MeshStandardMaterial({ color: 0xb3261e, roughness: 0.5 });
+const darkMat = new THREE.MeshStandardMaterial({ color: 0x18191c, roughness: 0.75 });
+const trimMat = new THREE.MeshStandardMaterial({ color: 0x0d0e10, roughness: 0.6, metalness: 0.2 });
+const headMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff2d0, emissiveIntensity: 0.9, roughness: 0.1 });
 
 /** ハンドルの回転角 [rad]（右に切ると正）。実際の前輪の切れ角の平均 × ステアリングギア比 */
 export function steeringWheelAngle(v: Vehicle) {
   return ((v.wheels[0].steer + v.wheels[1].steer) / 2) * v.p.steer.ratio;
+}
+
+function paintMaterial(color: string) {
+  if (quality.level === 'low') return new THREE.MeshStandardMaterial({ color: new THREE.Color(color), metalness: 0.4, roughness: 0.4 });
+  return new THREE.MeshPhysicalMaterial({ color: new THREE.Color(color), metalness: 0.45, roughness: 0.38, clearcoat: 1, clearcoatRoughness: 0.08 });
+}
+
+function glassMaterial() {
+  if (quality.level === 'low') return new THREE.MeshStandardMaterial({ color: 0x18222e, metalness: 0.6, roughness: 0.12 });
+  return new THREE.MeshPhysicalMaterial({ color: 0x101820, metalness: 0.2, roughness: 0.04, clearcoat: 1, clearcoatRoughness: 0.02, envMapIntensity: 1.4 });
+}
+
+/** タイヤの断面を回した形（車軸は x 方向） */
+function tireGeometry(r: number, w: number) {
+  const rr = r * 0.66, sh = Math.min(0.03, w * 0.15);
+  const pts = [
+    new THREE.Vector2(rr, -w / 2), new THREE.Vector2(r - sh * 1.6, -w / 2), new THREE.Vector2(r - sh * 0.4, -w / 2 + sh * 0.3),
+    new THREE.Vector2(r, -w / 2 + sh), new THREE.Vector2(r, w / 2 - sh), new THREE.Vector2(r - sh * 0.4, w / 2 - sh * 0.3),
+    new THREE.Vector2(r - sh * 1.6, w / 2), new THREE.Vector2(rr, w / 2),
+  ];
+  return new THREE.LatheGeometry(pts, 32).rotateZ(Math.PI / 2);
+}
+
+/** ホイール：リム、5 本のスポーク、中心（外側の面が side の向き） */
+function rimGeometry(r: number, w: number, side: number) {
+  const rr = r * 0.65;
+  const parts: THREE.BufferGeometry[] = [];
+  parts.push(new THREE.CylinderGeometry(rr, rr, w * 0.96, 24, 1, true).rotateZ(Math.PI / 2));
+  const face = side * (w / 2 - 0.012);
+  for (let s = 0; s < 5; s++) {
+    const a = (s / 5) * Math.PI * 2;
+    parts.push(new THREE.BoxGeometry(0.022, rr * 0.95, 0.045).translate(0, rr * 0.48, 0).rotateX(a).translate(face, 0, 0));
+  }
+  parts.push(new THREE.CylinderGeometry(rr * 0.22, rr * 0.25, 0.04, 12).rotateZ(Math.PI / 2).translate(face, 0, 0));
+  // 合わせる前に索引の有無をそろえる
+  return mergeGeometries(parts.map((x) => (x.index ? x.toNonIndexed() : x)))!;
 }
 
 export class CarMesh {
@@ -57,100 +61,131 @@ export class CarMesh {
   readonly wheels: THREE.Group[] = [];
   private readonly steeringWheel: THREE.Object3D;
   private readonly brakeMat: THREE.MeshStandardMaterial;
-  private readonly bodyMat: THREE.MeshStandardMaterial;
+  private readonly paint: THREE.Material;
+  private readonly glass: THREE.Material;
 
   constructor(readonly p: CarParams) {
     const g = carGeometry(p);
     const b = p.body;
-    this.bodyMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(p.color), metalness: 0.35, roughness: 0.4 });
-    const add = (m: THREE.Object3D | null) => { if (m) this.group.add(m); };
+    this.paint = paintMaterial(p.color);
+    this.glass = glassMaterial();
+    const add = <T extends THREE.Object3D>(m: T, shadow = true) => {
+      m.traverse((o) => { if (o instanceof THREE.Mesh) { o.castShadow = shadow; o.receiveShadow = true; } });
+      this.group.add(m);
+      return m;
+    };
 
-    // 車体の下半分：前後のバンパー、車輪の上のフェンダー、ドアの部分、車輪のあいだの芯
-    const W = b.width, y0 = g.bodyBottomY, y1 = g.beltY;
-    const fr = p.front.tireRadius, rr = p.rear.tireRadius;
-    const fA = g.frontAxleZ, rA = g.rearAxleZ;
-    const archF = [fA - fr - 0.06, fA + fr + 0.06], archR = [rA - rr - 0.06, rA + rr + 0.06];
-    const seg = (z0: number, z1: number, yb: number, w = W) => add(box(w, y1 - yb, z1 - z0, this.bodyMat, 0, (yb + y1) / 2, (z0 + z1) / 2));
-    seg(g.bodyFrontZ, archF[0], y0);
-    seg(archF[1], archR[0], y0);
-    seg(archR[1], g.bodyRearZ, y0);
-    const fTop = g.groundY + 2 * fr + 0.03, rTop = g.groundY + 2 * rr + 0.03;
-    if (fTop < y1) seg(archF[0], archF[1], fTop);
-    if (rTop < y1) seg(archR[0], archR[1], rTop);
-    const coreW = Math.min(p.front.track - p.front.tireWidth, p.rear.track - p.rear.tireWidth) - 0.06;
-    seg(archF[0], archF[1], y0, coreW);
-    seg(archR[0], archR[1], y0, coreW);
+    // 車体
+    const body = buildBody(p, g);
+    const pr = body.profile;
+    add(new THREE.Mesh(body.paint, this.paint));
+    add(new THREE.Mesh(body.glass, this.glass));
+    add(new THREE.Mesh(body.pillars, this.paint));
 
-    // 窓まわりと屋根
-    const cabH = g.bodyTopY - g.beltY;
-    const cabin = new THREE.Mesh(cabinGeometry(W * 0.9, W * 0.78, g.beltY, g.bodyTopY - 0.03, g.cabinFrontZ, g.cabinRearZ, cabH * 1.1, cabH * 0.8), glassMat);
-    cabin.castShadow = true;
-    add(cabin);
-    const roofZ0 = g.cabinFrontZ + cabH * 1.1, roofZ1 = g.cabinRearZ - cabH * 0.8;
-    add(box(W * 0.78, 0.04, Math.max(0.1, roofZ1 - roofZ0), this.bodyMat, 0, g.bodyTopY - 0.02, (roofZ0 + roofZ1) / 2, 0.02));
-    // 柱（運転席から見える前の柱と屋根の縁）
+    const zf = pr.zf, zr = pr.zr;
+    // 前：ライト、グリル
+    const zl = zf + 0.1;
+    const yl = pr.top(zl) - 0.05;
     for (const s of [-1, 1]) {
-      add(beam(new THREE.Vector3((s * W * 0.9) / 2, g.beltY, g.cabinFrontZ), new THREE.Vector3((s * W * 0.78) / 2, g.bodyTopY - 0.03, roofZ0), 0.035, this.bodyMat));
+      const l = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 8), headMat);
+      l.scale.set(0.17, 0.05, 0.09);
+      l.position.set(s * pr.halfWidth(zl) * 0.66, yl, zl - 0.01);
+      add(l, false);
     }
-    add(beam(new THREE.Vector3((-W * 0.78) / 2, g.bodyTopY - 0.04, roofZ0), new THREE.Vector3((W * 0.78) / 2, g.bodyTopY - 0.04, roofZ0), 0.04, this.bodyMat));
-
-    // 灯火
-    const lightY = y0 + (y1 - y0) * 0.7;
+    const zg = zf + 0.05;
+    const gh = Math.max(0.06, (pr.top(zg) - pr.bottom(zg)) * 0.35);
+    const grille = new THREE.Mesh(new THREE.BoxGeometry(pr.halfWidth(zg) * 1.1, gh, 0.03), trimMat);
+    grille.position.set(0, (pr.bottom(zg) + pr.top(zg)) / 2 - 0.03, zf + 0.025);
+    add(grille, false);
+    // 後ろ：灯火、排気管
+    this.brakeMat = new THREE.MeshStandardMaterial({ color: 0x8a0d0d, emissive: 0xff1a1a, emissiveIntensity: 0.25, roughness: 0.2 });
+    const zt = zr - 0.03;
+    const yt = pr.top(zt - 0.05) - 0.07;
     for (const s of [-1, 1]) {
-      add(box(0.28, 0.09, 0.04, headMat, s * W * 0.33, lightY, g.bodyFrontZ - 0.005, 0.01));
+      const t = new THREE.Mesh(new THREE.BoxGeometry(pr.halfWidth(zt) * 0.5, 0.07, 0.04), this.brakeMat);
+      t.position.set(s * pr.halfWidth(zt) * 0.62, yt, zt);
+      add(t, false);
     }
-    this.brakeMat = new THREE.MeshStandardMaterial({ color: 0x8a0d0d, emissive: 0xff1a1a, emissiveIntensity: 0.2 });
-    for (const s of [-1, 1]) add(box(0.3, 0.08, 0.04, this.brakeMat, s * W * 0.34, lightY, g.bodyRearZ + 0.005, 0.01));
+    for (const s of [-1, 1]) {
+      const e = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.12, 12).rotateX(Math.PI / 2), rimMat);
+      e.position.set(s * b.width * 0.28, pr.bottom(zr - 0.1) + 0.05, zr - 0.02);
+      add(e, false);
+    }
+    // ミラー
+    const zm = g.cabinFrontZ + 0.22;
+    for (const s of [-1, 1]) {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.075, 0.15), this.paint);
+      m.position.set(s * (pr.halfWidth(zm) * 0.93 + 0.08), pr.belt + 0.08, zm);
+      add(m, false);
+    }
+    // 羽根
+    if (pr.st.wing) {
+      const zw = zr - 0.22;
+      const yw = pr.top(zw) + 0.2;
+      const wing = new THREE.Mesh(new THREE.BoxGeometry(b.width * 0.86, 0.025, 0.26), this.paint);
+      wing.position.set(0, yw, zw);
+      wing.rotation.x = 0.08;
+      add(wing);
+      for (const s of [-1, 1]) {
+        const post = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.2, 0.08), trimMat);
+        post.position.set(s * b.width * 0.3, yw - 0.1, zw);
+        add(post, false);
+      }
+    }
 
-    // 運転席：計器盤とハンドル
+    // 運転席：計器盤、ハンドル、前の柱（中から見える）
     const [ex, ey, ez] = g.eye;
-    add(box(W * 0.82, 0.12, 0.35, darkMat, 0, g.beltY + 0.03, g.cabinFrontZ + 0.32, 0.03));
+    const dash = new THREE.Mesh(new THREE.BoxGeometry(b.width * 0.8, 0.12, 0.36), darkMat);
+    dash.position.set(0, pr.belt + 0.03, g.cabinFrontZ + 0.34);
+    add(dash, false);
+    for (const s of [-1, 1]) {
+      const [x0, y0] = pr.cabinPoint(g.cabinFrontZ + 0.02, s > 0 ? 2 : 16);
+      const [x1, y1] = pr.cabinPoint(pr.wsEnd, s > 0 ? 2 : 16);
+      const a = new THREE.Vector3(x0 * 0.97, y0, g.cabinFrontZ + 0.03), c = new THREE.Vector3(x1 * 0.97, y1 - 0.02, pr.wsEnd);
+      const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, a.distanceTo(c), 6), darkMat);
+      beam.position.copy(a).add(c).multiplyScalar(0.5);
+      beam.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), c.clone().sub(a).normalize());
+      add(beam, false);
+    }
     const sw = new THREE.Group();
-    const rim = new THREE.Mesh(new THREE.TorusGeometry(0.18, 0.02, 8, 24), darkMat);
-    sw.add(rim);
-    const spoke = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.03, 0.015), darkMat);
+    sw.add(new THREE.Mesh(new THREE.TorusGeometry(0.18, 0.02, 8, 28), darkMat));
+    sw.add(new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.03, 0.015), darkMat));
+    const spoke = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.17, 0.015), darkMat);
+    spoke.position.y = -0.085;
     sw.add(spoke);
-    const spoke2 = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.17, 0.015), darkMat);
-    spoke2.position.y = -0.085;
-    sw.add(spoke2);
-    const swHolder = new THREE.Group();
-    swHolder.position.set(ex, ey - 0.27, ez - 0.42);
-    swHolder.rotation.x = -0.35;
-    swHolder.add(sw);
-    this.group.add(swHolder);
+    const mark = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.025, 0.02), new THREE.MeshBasicMaterial({ color: 0xffb000 }));
+    mark.position.y = 0.18;
+    sw.add(mark);
+    const holder = new THREE.Group();
+    holder.position.set(ex, ey - 0.27, ez - 0.42);
+    holder.rotation.x = -0.35;
+    holder.add(sw);
+    this.group.add(holder);
     this.steeringWheel = sw;
 
     // 車輪
     for (let k = 0; k < 4; k++) {
       const front = k < 2;
       const ax = front ? p.front : p.rear;
+      const side = k % 2 === 0 ? -1 : 1;
       const wg = new THREE.Group();
       wg.rotation.order = 'YXZ';
       const spin = new THREE.Group();
-      const tire = new THREE.Mesh(new THREE.CylinderGeometry(ax.tireRadius, ax.tireRadius, ax.tireWidth, 24), tireMat);
-      tire.rotation.z = Math.PI / 2;
-      tire.castShadow = true;
-      spin.add(tire);
-      const side = k % 2 === 0 ? -1 : 1;
-      const rimM = new THREE.Mesh(new THREE.CylinderGeometry(ax.tireRadius * 0.62, ax.tireRadius * 0.62, ax.tireWidth + 0.01, 16), rimMat);
-      rimM.rotation.z = Math.PI / 2;
-      spin.add(rimM);
-      for (let s = 0; s < 5; s++) {
-        const sp = new THREE.Mesh(new THREE.BoxGeometry(0.02, ax.tireRadius * 1.2, 0.05), darkMat);
-        sp.position.x = side * (ax.tireWidth / 2 + 0.012);
-        sp.rotation.x = (s / 5) * Math.PI;
-        spin.add(sp);
-      }
+      spin.add(new THREE.Mesh(tireGeometry(ax.tireRadius, ax.tireWidth), tireMat));
+      spin.add(new THREE.Mesh(rimGeometry(ax.tireRadius, ax.tireWidth, side), rimMat));
+      const disc = new THREE.Mesh(new THREE.CylinderGeometry(ax.tireRadius * 0.52, ax.tireRadius * 0.52, 0.025, 20).rotateZ(Math.PI / 2), discMat);
+      disc.position.x = -side * ax.tireWidth * 0.1;
+      spin.add(disc);
+      spin.traverse((o) => { if (o instanceof THREE.Mesh) o.castShadow = true; });
       wg.add(spin);
+      // ブレーキのキャリパーは回らない
+      const cal = new THREE.Mesh(new THREE.BoxGeometry(0.05, ax.tireRadius * 0.34, ax.tireRadius * 0.22), caliperMat);
+      cal.position.set(-side * ax.tireWidth * 0.05, ax.tireRadius * 0.36, front ? -ax.tireRadius * 0.25 : ax.tireRadius * 0.25);
+      wg.add(cal);
       wg.userData.spin = spin;
       this.wheels.push(wg);
       this.group.add(wg);
-    }
-    // 走る前は静止位置に置く
-    for (let k = 0; k < 4; k++) {
-      const front = k < 2, side = k % 2 === 0 ? -1 : 1;
-      const ax = front ? p.front : p.rear;
-      this.wheels[k].position.set((side * ax.track) / 2, g.groundY + ax.tireRadius, front ? fA : rA);
+      wg.position.set((side * ax.track) / 2, g.groundY + ax.tireRadius, front ? g.frontAxleZ : g.rearAxleZ);
     }
   }
 
@@ -166,14 +201,15 @@ export class CarMesh {
     }
     // ハンドルの回転 = 実際のタイヤの切れ角 × ステアリングギア比
     this.steeringWheel.rotation.z = -steeringWheelAngle(v);
-    this.brakeMat.emissiveIntensity = v.brakeOut > 0.05 ? 1.6 : 0.2;
+    this.brakeMat.emissiveIntensity = v.brakeOut > 0.05 ? 1.8 : 0.25;
   }
 
   dispose() {
     this.group.traverse((o) => {
       if (o instanceof THREE.Mesh) o.geometry.dispose();
     });
-    this.bodyMat.dispose();
+    this.paint.dispose();
+    this.glass.dispose();
     this.brakeMat.dispose();
   }
 }

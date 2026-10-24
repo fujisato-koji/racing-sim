@@ -76,6 +76,12 @@ export interface CourseData {
   ramps: Float32Array[];
   rocks: Float32Array[];
   walls: { cx: number; cy: number; cz: number; half: [number, number, number]; yaw: number }[];
+  /** 縁石（路面の端に沿う帯）。色を塗り分けるため頂点ごとに赤か白か */
+  kerbs: { vertices: Float32Array; indices: Uint32Array; colors: Float32Array } | null;
+  /** 木 [x, y, z, 大きさ] */
+  trees: [number, number, number, number][];
+  /** 観客席とピットの建物 */
+  buildings: { kind: 'stand' | 'pit'; x: number; y: number; z: number; yaw: number; length: number }[];
   cones: [number, number, number][];
   tireStacks: { x: number; y: number; z: number; count: number }[];
   grid: { x: number; y: number; z: number; yaw: number }[];
@@ -288,7 +294,7 @@ export function buildCourse(def: CourseDef): CourseData {
     const x = x0 + i * cell, z = z0 + j * cell, k = (j * (nx + 1) + i) * 3;
     vertices[k] = x; vertices[k + 1] = terrainHeight(x, z); vertices[k + 2] = z;
     const c = SURFACES[surfaceAt(x, z)].color;
-    const v = 0.92 + shade() * 0.12;
+    const v = (0.92 + shade() * 0.1) * (0.88 + 0.24 * (noise(x / 45 + 3.1, z / 45 - 1.7) * 0.5 + 0.5));
     colors[k] = (((c >> 16) & 255) / 255) * v; colors[k + 1] = (((c >> 8) & 255) / 255) * v; colors[k + 2] = ((c & 255) / 255) * v;
   }
   const bySurface = new Map<SurfaceId, number[]>();
@@ -389,7 +395,7 @@ export function buildCourse(def: CourseDef): CourseData {
   const cones: CourseData['cones'] = [];
   for (const w of def.walls ?? []) {
     const y = heightAt(w.x, w.z);
-    walls.push({ cx: w.x, cy: y + 0.5, cz: w.z, half: [0.25, 0.7, w.length / 2], yaw: w.yaw });
+    walls.push({ cx: w.x, cy: y + 0.5, cz: w.z, half: [0.3, 0.5, w.length / 2], yaw: w.yaw });
   }
   for (const s of def.tireStacks ?? []) tireStacks.push({ x: s.x, y: heightAt(s.x, s.z), z: s.z, count: s.count });
   for (const [x, z] of def.cones ?? []) cones.push([x, heightAt(x, z), z]);
@@ -405,7 +411,7 @@ export function buildCourse(def: CourseDef): CourseData {
           const off = (width / 2 + SHOULDER + 1.8) * side;
           const x = p.x + p.lx * off, z = p.z + p.lz * off;
           const y = heightAt(x, z);
-          if (b.kind === 'wall') walls.push({ cx: x, cy: y + 0.45, cz: z, half: [0.25, 0.75, step / 2 + 0.05], yaw: yawFromDir(p.tx, p.tz) });
+          if (b.kind === 'wall') walls.push({ cx: x, cy: y + 0.45, cz: z, half: [0.3, 0.5, step / 2 + 0.05], yaw: yawFromDir(p.tx, p.tz) });
           else tireStacks.push({ x, y, z, count: 2 });
         }
       }
@@ -415,6 +421,66 @@ export function buildCourse(def: CourseDef): CourseData {
       const x = p.x + p.lx * off, z = p.z + p.lz * off;
       cones.push([x, p.y, z]);
     }
+  }
+
+  // 縁石：曲がりのきつい区間の両端に、路面の端から外へ 1.1 m の帯を置く（内側が少し高い）
+  let kerbs: CourseData['kerbs'] = null;
+  if (t && t.surface === 'asphalt') {
+    const kv: number[] = [], kc: number[] = [], ki: number[] = [];
+    const e = width / 2;
+    const sharp = path.map((p) => Math.abs(p.k) > 1 / 140);
+    // 前後 12 m に広げる
+    const on = path.map((_, i) => { for (let j = -12; j <= 12; j++) if (sharp[(i + j + n) % n]) return true; return false; });
+    for (const side of [1, -1]) {
+      let run: number[] = [];
+      const flush = () => {
+        if (run.length < 2) { run = []; return; }
+        const base = kv.length / 3;
+        run.forEach((i, r) => {
+          const p = path[i];
+          const red = Math.floor(path[i].s / 1.5) % 2 === 0;
+          const col = red ? [0.78, 0.12, 0.1] : [0.92, 0.92, 0.9];
+          for (const [off, dy] of [[e - 0.05, 0.035], [e + 1.1, -0.04]] as const) {
+            kv.push(p.x + p.lx * off * side, p.y + dy, p.z + p.lz * off * side);
+            kc.push(...col);
+          }
+          if (r > 0) {
+            const a = base + (r - 1) * 2, b = a + 1, c = a + 2, d = a + 3;
+            // 上向きの面（左側は内から外へが左向きなので、順を入れ替える）
+            if (side > 0) ki.push(a, c, b, b, c, d); else ki.push(a, b, c, b, d, c);
+          }
+        });
+        run = [];
+      };
+      for (let i = 0; i < n; i++) { if (on[i]) run.push(i); else flush(); }
+      flush();
+    }
+    if (ki.length > 0) kerbs = { vertices: new Float32Array(kv), indices: new Uint32Array(ki), colors: new Float32Array(kc) };
+  }
+
+  // 木：コースから 18 m 以上離れた草地に、ばらつかせて置く
+  const trees: CourseData['trees'] = [];
+  {
+    const rnd = rng(31);
+    const area = (x1 - x0) * (z1 - z0);
+    const want = Math.min(1600, Math.round(area / 900));
+    for (let k = 0; k < want * 3 && trees.length < want; k++) {
+      const x = x0 + 20 + rnd() * (x1 - x0 - 40), z = z0 + 20 + rnd() * (z1 - z0 - 40);
+      if (surfaceAt(x, z) !== 'grass') continue;
+      if (index) { const q = index.nearest(x, z); if (q && q.d < width / 2 + 18) continue; }
+      if (!t && Math.abs(x) < 140 && Math.abs(z) < 140) continue;
+      trees.push([x, heightAt(x, z), z, 0.7 + rnd() * 0.8]);
+    }
+  }
+
+  // 観客席とピット：スタートラインの前後の直線の外
+  const buildings: CourseData['buildings'] = [];
+  if (t) {
+    const p0 = path[0];
+    const yaw = yawFromDir(p0.tx, p0.tz);
+    const off = width / 2 + SHOULDER + 9;
+    buildings.push({ kind: 'stand', x: p0.x + p0.lx * off, y: p0.y, z: p0.z + p0.lz * off, yaw, length: 80 });
+    buildings.push({ kind: 'pit', x: p0.x - p0.lx * (off + 2), y: p0.y, z: p0.z - p0.lz * (off + 2), yaw, length: 90 });
   }
 
   // スタート位置
@@ -435,7 +501,7 @@ export function buildCourse(def: CourseDef): CourseData {
   return {
     def, bounds: { x0, z0, x1, z1 },
     terrain: { nx, nz, cell, vertices, colors, parts: terrainParts },
-    road, shoulder, path, length, width, ramps, rocks, walls, cones, tireStacks, grid, heightAt,
+    road, shoulder, path, length, width, ramps, rocks, walls, kerbs, trees, buildings, cones, tireStacks, grid, heightAt,
   };
 }
 
@@ -446,6 +512,7 @@ export function populate(pw: PhysicsWorld, c: CourseData) {
     for (const part of c.road.parts) pw.addStaticMesh(c.road.vertices, part.indices, SURFACES[part.surface]);
   }
   if (c.shoulder) pw.addStaticMesh(c.shoulder.vertices, c.shoulder.indices, SURFACES[c.shoulder.surface]);
+  if (c.kerbs) pw.addStaticMesh(c.kerbs.vertices, c.kerbs.indices, SURFACES.kerb);
   for (const r of c.ramps) pw.addStaticConvex(r, SURFACES.concrete);
   for (const r of c.rocks) pw.addStaticConvex(r, SURFACES.rock);
   for (const w of c.walls) pw.addStaticBox([w.cx, w.cy, w.cz], w.half, w.yaw);

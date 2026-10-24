@@ -58,6 +58,8 @@ export interface CarParams {
     /** 慣性モーメントの倍率（箱で近似した値に掛ける） */
     inertiaScale: number;
     driverSide: 'right' | 'left';
+    /** 車体の型（見た目だけ） */
+    style: 'hatch' | 'sedan' | 'coupe' | 'suv' | 'kei' | 'super';
   };
   wheelbase: number;
   front: AxleParams;
@@ -353,6 +355,9 @@ export const FIELDS: FieldDef[] = [
   { path: 'body.weightFront', label: '前軸の荷重配分', group: '車体', kind: 'number', unit: '%', min: 0.3, max: 0.7, step: 0.005, scale: 100 },
   { path: 'body.cgHeight', label: '重心高', group: '車体', kind: 'number', unit: 'm', min: 0.2, max: 1.2, step: 0.005 },
   { path: 'body.inertiaScale', label: '慣性モーメントの倍率', group: '車体', kind: 'number', min: 0.5, max: 1.5, step: 0.01 },
+  { path: 'body.style', label: '車体の型', group: '車体', kind: 'select', options: [
+    { value: 'kei', label: '軽（背が高く鼻が短い）' }, { value: 'hatch', label: 'ハッチバック' }, { value: 'sedan', label: 'セダン（羽根付き）' },
+    { value: 'coupe', label: 'クーペ（後ろがなだらか）' }, { value: 'suv', label: 'SUV' }, { value: 'super', label: 'ミッドシップ（低く長い）' }] },
   { path: 'body.driverSide', label: '運転席', group: '車体', kind: 'select', options: [{ value: 'right', label: '右' }, { value: 'left', label: '左' }] },
   ...axleFields('front', '前'),
   ...axleFields('rear', '後'),

@@ -14,13 +14,15 @@ import { cloneParams, computeDerived } from './sim/params';
 import { CAR_PRESETS } from './sim/presets';
 import { Hud, formatTime } from './ui/hud';
 import { initLayout, isTouch, requestLandscape } from './ui/layout';
+import type { QualityPref } from './render/quality';
+import { quality } from './render/quality';
 import { buildSettingsForm, renderDerived } from './ui/settings';
 import { exportCar, importCar, loadCustomCars, saveCustomCars } from './ui/storage';
 
 const PREFS = 'racing-sim.prefs.v1';
-interface Prefs { volume: number; muted: boolean; tiltRange: number; centerSoft: number; manual: boolean }
+interface Prefs { volume: number; muted: boolean; tiltRange: number; centerSoft: number; manual: boolean; quality: QualityPref }
 function loadPrefs(): Prefs {
-  const d: Prefs = { volume: 0.7, muted: false, tiltRange: 40, centerSoft: 1, manual: false };
+  const d: Prefs = { volume: 0.7, muted: false, tiltRange: 40, centerSoft: 1, manual: false, quality: 'auto' };
   try { return { ...d, ...(JSON.parse(localStorage.getItem(PREFS) ?? '{}') as Partial<Prefs>) }; } catch { return d; }
 }
 function savePrefs(p: Prefs) {
@@ -50,6 +52,7 @@ class App {
   private last = performance.now();
 
   constructor(stage: HTMLElement, overlay: HTMLDivElement) {
+    quality.pref = this.prefs.quality;
     this.view = new GameView(stage);
     this.hud = new Hud(stage);
     this.hud.visible = false;
@@ -324,6 +327,7 @@ class App {
     return `<div class="prefs">
       <label class="field"><span class="field-name">音量</span><input type="range" min="0" max="1" step="0.05" value="${this.prefs.volume}" data-volume><span class="field-unit"></span></label>
       <label class="field"><span class="field-name">音を消す</span><input type="checkbox" ${this.prefs.muted ? 'checked' : ''} data-mute><span></span></label>
+      <label class="field"><span class="field-name">描画の質</span><select data-quality>${(['auto', 'low', 'medium', 'high'] as const).map((q) => `<option value="${q}" ${this.prefs.quality === q ? 'selected' : ''}>${{ auto: '自動（重ければ画素を減らす）', low: '低', medium: '中', high: '高' }[q]}</option>`).join('')}</select><span></span></label>
       <label class="field"><span class="field-name">変速</span><select data-trans><option value="auto" ${this.prefs.manual ? '' : 'selected'}>自動</option><option value="manual" ${this.prefs.manual ? 'selected' : ''}>手動（E/Q、RB/LB、画面の ▲▼）</option></select><span></span></label>
       ${isTouch ? `<label class="field"><span class="field-name">いっぱいに切る傾き</span><input type="range" min="15" max="90" step="5" value="${this.prefs.tiltRange}" data-tilt><span class="field-unit" data-tilt-text>${this.prefs.tiltRange}°</span></label>
       <label class="field"><span class="field-name">中央付近の鈍さ（遊び）</span><input type="range" min="0" max="1" step="0.05" value="${this.prefs.centerSoft}" data-soft><span class="field-unit" data-soft-text>${Math.round(this.prefs.centerSoft * 100)}%</span></label>` : ''}
@@ -333,6 +337,15 @@ class App {
   private bindPrefs(el: HTMLElement) {
     const vol = el.querySelector('[data-volume]') as HTMLInputElement | null;
     vol?.addEventListener('input', () => { this.prefs.volume = Number(vol.value); this.sound.volume = this.prefs.volume; savePrefs(this.prefs); });
+    const qsel = el.querySelector('[data-quality]') as HTMLSelectElement | null;
+    qsel?.addEventListener('change', () => {
+      this.prefs.quality = qsel.value as QualityPref;
+      quality.pref = this.prefs.quality;
+      this.view.applyQuality();
+      this.view.refreshSky();
+      this.view.resize();
+      savePrefs(this.prefs);
+    });
     const trans = el.querySelector('[data-trans]') as HTMLSelectElement | null;
     trans?.addEventListener('change', () => {
       this.prefs.manual = trans.value === 'manual';

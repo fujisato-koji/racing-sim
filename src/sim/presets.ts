@@ -15,7 +15,7 @@ export const CAR_PRESETS: CarParams[] = [
   {
     id: 'kei', name: '軽自動車', color: '#e8e2d0',
     body: { length: 3.395, width: 1.475, height: 1.65, groundClearance: 0.15, frontOverhang: 0.5, cabinFront: 0.22, cabinRear: 0.97, beltLine: 0.52,
-      mass: 860, weightFront: 0.6, cgHeight: 0.58, inertiaScale: 1, driverSide: 'right' },
+      mass: 860, weightFront: 0.6, cgHeight: 0.58, inertiaScale: 1, driverSide: 'right', style: 'kei' },
     wheelbase: 2.46,
     front: axle(1.30, 0.28, 0.155, 14, 20000, 1200, 2400, 0.18, 8000, 0.06, 800),
     rear: axle(1.29, 0.28, 0.155, 14, 16000, 1000, 2000, 0.18, 0, 0.12, 400),
@@ -31,7 +31,7 @@ export const CAR_PRESETS: CarParams[] = [
   {
     id: 'hatch', name: '小型ハッチバック', color: '#3d6fb6',
     body: { length: 4.0, width: 1.7, height: 1.48, groundClearance: 0.14, frontOverhang: 0.85, cabinFront: 0.3, cabinRear: 0.95, beltLine: 0.55,
-      mass: 1200, weightFront: 0.61, cgHeight: 0.52, inertiaScale: 1, driverSide: 'right' },
+      mass: 1200, weightFront: 0.61, cgHeight: 0.52, inertiaScale: 1, driverSide: 'right', style: 'hatch' },
     wheelbase: 2.55,
     front: axle(1.48, 0.31, 0.195, 18, 32500, 2000, 3500, 0.18, 18000, 0.07, 1300),
     rear: axle(1.47, 0.31, 0.195, 18, 24000, 1600, 2800, 0.18, 5000, 0.12, 560),
@@ -47,7 +47,7 @@ export const CAR_PRESETS: CarParams[] = [
   {
     id: 'fr-sport', name: 'FR スポーツ', color: '#c8312b',
     body: { length: 4.27, width: 1.775, height: 1.31, groundClearance: 0.13, frontOverhang: 0.85, cabinFront: 0.36, cabinRear: 0.8, beltLine: 0.56,
-      mass: 1270, weightFront: 0.53, cgHeight: 0.46, inertiaScale: 1, driverSide: 'right' },
+      mass: 1270, weightFront: 0.53, cgHeight: 0.46, inertiaScale: 1, driverSide: 'right', style: 'coupe' },
     wheelbase: 2.575,
     front: axle(1.52, 0.315, 0.215, 20, 48000, 3000, 4500, 0.15, 32000, 0.06, 1800),
     rear: axle(1.55, 0.315, 0.215, 20, 46000, 2800, 4200, 0.15, 8000, 0.1, 800),
@@ -63,7 +63,7 @@ export const CAR_PRESETS: CarParams[] = [
   {
     id: 'rally', name: '4WD ラリー', color: '#2f7d4a',
     body: { length: 4.3, width: 1.8, height: 1.45, groundClearance: 0.18, frontOverhang: 0.9, cabinFront: 0.32, cabinRear: 0.88, beltLine: 0.56,
-      mass: 1300, weightFront: 0.58, cgHeight: 0.52, inertiaScale: 1, driverSide: 'right' },
+      mass: 1300, weightFront: 0.58, cgHeight: 0.52, inertiaScale: 1, driverSide: 'right', style: 'sedan' },
     wheelbase: 2.62,
     front: axle(1.55, 0.325, 0.205, 20, 38000, 2600, 4200, 0.25, 18000, 0.08, 1600),
     rear: axle(1.55, 0.325, 0.205, 20, 31000, 2200, 3600, 0.25, 7000, 0.12, 700),
@@ -79,7 +79,7 @@ export const CAR_PRESETS: CarParams[] = [
   {
     id: 'mr-super', name: 'MR スーパーカー', color: '#f0b400',
     body: { length: 4.5, width: 1.95, height: 1.2, groundClearance: 0.11, frontOverhang: 1.0, cabinFront: 0.3, cabinRear: 0.62, beltLine: 0.55,
-      mass: 1500, weightFront: 0.42, cgHeight: 0.43, inertiaScale: 0.9, driverSide: 'left' },
+      mass: 1500, weightFront: 0.42, cgHeight: 0.43, inertiaScale: 0.9, driverSide: 'left', style: 'super' },
     wheelbase: 2.65,
     front: axle(1.67, 0.34, 0.245, 22, 60000, 4000, 6000, 0.12, 40000, 0.05, 2500),
     rear: axle(1.62, 0.355, 0.305, 26, 90000, 5000, 7500, 0.12, 20000, 0.08, 1700),
@@ -95,7 +95,7 @@ export const CAR_PRESETS: CarParams[] = [
   {
     id: 'suv', name: 'SUV', color: '#7a6a58',
     body: { length: 4.6, width: 1.85, height: 1.72, groundClearance: 0.21, frontOverhang: 0.92, cabinFront: 0.3, cabinRear: 0.97, beltLine: 0.55,
-      mass: 1850, weightFront: 0.57, cgHeight: 0.7, inertiaScale: 1, driverSide: 'right' },
+      mass: 1850, weightFront: 0.57, cgHeight: 0.7, inertiaScale: 1, driverSide: 'right', style: 'suv' },
     wheelbase: 2.69,
     front: axle(1.58, 0.36, 0.225, 25, 35100, 2800, 4500, 0.24, 25000, 0.1, 2000),
     rear: axle(1.58, 0.36, 0.225, 25, 30800, 2500, 4000, 0.24, 8000, 0.15, 650),

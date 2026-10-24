@@ -1,5 +1,5 @@
 // 路面の種類と係数。値は調整を始めるための仮置き（出典なし）。
-export type SurfaceId = 'asphalt' | 'concrete' | 'gravel' | 'sand' | 'rock' | 'grass';
+export type SurfaceId = 'asphalt' | 'concrete' | 'kerb' | 'gravel' | 'sand' | 'rock' | 'grass';
 
 export interface Surface {
   id: SurfaceId;
@@ -25,6 +25,8 @@ export interface Surface {
 
 export const SURFACES: Record<SurfaceId, Surface> = {
   asphalt: { id: 'asphalt', name: 'アスファルト', mu: 1.0, slipScale: 1.0, slide: null, rolling: 0.012, roughness: 0, roughWave: 1, sink: 0, bodyFriction: 0.6, color: 0x3b3e44 },
+  // 縁石：塗ったコンクリートに細かい段（車体が細かく揺れる）
+  kerb: { id: 'kerb', name: '縁石', mu: 0.88, slipScale: 1.0, slide: null, rolling: 0.014, roughness: 0.012, roughWave: 0.22, sink: 0, bodyFriction: 0.5, color: 0xc8312b },
   concrete: { id: 'concrete', name: 'コンクリート', mu: 0.95, slipScale: 1.0, slide: null, rolling: 0.012, roughness: 0, roughWave: 1, sink: 0, bodyFriction: 0.5, color: 0x9a9a96 },
   gravel: { id: 'gravel', name: '砂利', mu: 0.62, slipScale: 1.8, slide: 0.95, rolling: 0.03, roughness: 0.012, roughWave: 0.6, sink: 0.01, bodyFriction: 0.5, color: 0x8c8172 },
   sand: { id: 'sand', name: '砂地', mu: 0.45, slipScale: 2.2, slide: 1.0, rolling: 0.15, roughness: 0.006, roughWave: 1.5, sink: 0.06, bodyFriction: 0.6, color: 0xd6c08a },
