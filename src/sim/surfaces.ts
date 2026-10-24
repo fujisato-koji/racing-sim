@@ -24,14 +24,14 @@ export interface Surface {
 }
 
 export const SURFACES: Record<SurfaceId, Surface> = {
-  asphalt: { id: 'asphalt', name: 'アスファルト', mu: 1.0, slipScale: 1.0, slide: null, rolling: 0.012, roughness: 0, roughWave: 1, sink: 0, bodyFriction: 0.6, color: 0x3b3e44 },
+  asphalt: { id: 'asphalt', name: 'Asphalt', mu: 1.0, slipScale: 1.0, slide: null, rolling: 0.012, roughness: 0, roughWave: 1, sink: 0, bodyFriction: 0.6, color: 0x3b3e44 },
   // 縁石：塗ったコンクリートに細かい段（車体が細かく揺れる）
-  kerb: { id: 'kerb', name: '縁石', mu: 0.88, slipScale: 1.0, slide: null, rolling: 0.014, roughness: 0.012, roughWave: 0.22, sink: 0, bodyFriction: 0.5, color: 0xc8312b },
-  concrete: { id: 'concrete', name: 'コンクリート', mu: 0.95, slipScale: 1.0, slide: null, rolling: 0.012, roughness: 0, roughWave: 1, sink: 0, bodyFriction: 0.5, color: 0x9a9a96 },
-  gravel: { id: 'gravel', name: '砂利', mu: 0.62, slipScale: 1.8, slide: 0.95, rolling: 0.03, roughness: 0.012, roughWave: 0.6, sink: 0.01, bodyFriction: 0.5, color: 0x8c8172 },
-  sand: { id: 'sand', name: '砂地', mu: 0.45, slipScale: 2.2, slide: 1.0, rolling: 0.15, roughness: 0.006, roughWave: 1.5, sink: 0.06, bodyFriction: 0.6, color: 0xd6c08a },
-  rock: { id: 'rock', name: '岩場', mu: 0.8, slipScale: 1.2, slide: 0.8, rolling: 0.03, roughness: 0.03, roughWave: 0.5, sink: 0, bodyFriction: 0.7, color: 0x6e6964 },
-  grass: { id: 'grass', name: '草地', mu: 0.5, slipScale: 1.6, slide: 0.9, rolling: 0.05, roughness: 0.01, roughWave: 0.8, sink: 0.01, bodyFriction: 0.4, color: 0x4d7a38 },
+  kerb: { id: 'kerb', name: 'Curb', mu: 0.88, slipScale: 1.0, slide: null, rolling: 0.014, roughness: 0.012, roughWave: 0.22, sink: 0, bodyFriction: 0.5, color: 0xc8312b },
+  concrete: { id: 'concrete', name: 'Concrete', mu: 0.95, slipScale: 1.0, slide: null, rolling: 0.012, roughness: 0, roughWave: 1, sink: 0, bodyFriction: 0.5, color: 0x9a9a96 },
+  gravel: { id: 'gravel', name: 'Gravel', mu: 0.62, slipScale: 1.8, slide: 0.95, rolling: 0.03, roughness: 0.012, roughWave: 0.6, sink: 0.01, bodyFriction: 0.5, color: 0x8c8172 },
+  sand: { id: 'sand', name: 'Sand', mu: 0.45, slipScale: 2.2, slide: 1.0, rolling: 0.15, roughness: 0.006, roughWave: 1.5, sink: 0.06, bodyFriction: 0.6, color: 0xd6c08a },
+  rock: { id: 'rock', name: 'Rock', mu: 0.8, slipScale: 1.2, slide: 0.8, rolling: 0.03, roughness: 0.03, roughWave: 0.5, sink: 0, bodyFriction: 0.7, color: 0x6e6964 },
+  grass: { id: 'grass', name: 'Grass', mu: 0.5, slipScale: 1.6, slide: 0.9, rolling: 0.05, roughness: 0.01, roughWave: 0.8, sink: 0.01, bodyFriction: 0.4, color: 0x4d7a38 },
 };
 
 // 位置で決まる凹凸。同じ場所はいつも同じ高さになる。

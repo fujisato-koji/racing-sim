@@ -275,16 +275,16 @@ export function computeDerived(p: CarParams): Derived {
   const pk = peakValues(p);
   const stabilityFactor = Math.min(p.front.track, p.rear.track) / (2 * p.body.cgHeight);
   const warnings: string[] = [];
-  if (sagFront > p.front.travel * 0.8) warnings.push('前のばねが柔らかすぎ、止まっているだけで底付きに近い');
-  if (sagRear > p.rear.travel * 0.8) warnings.push('後のばねが柔らかすぎ、止まっているだけで底付きに近い');
-  if (stabilityFactor < 1.1) warnings.push('重心が高く、横転しやすい');
-  if (p.body.groundClearance >= p.body.height * p.body.beltLine) warnings.push('最低地上高が窓の下端より高い');
-  if (p.front.tireRadius * 2 > p.body.height) warnings.push('タイヤが車高より大きい');
+  if (sagFront > p.front.travel * 0.8) warnings.push('Front springs are too soft, nearly bottoming out at standstill');
+  if (sagRear > p.rear.travel * 0.8) warnings.push('Rear springs are too soft, nearly bottoming out at standstill');
+  if (stabilityFactor < 1.1) warnings.push('Center of gravity is high, so the car rolls over easily');
+  if (p.body.groundClearance >= p.body.height * p.body.beltLine) warnings.push('Ground clearance is higher than the window bottom edge');
+  if (p.front.tireRadius * 2 > p.body.height) warnings.push('Tires are taller than the car');
   for (let i = 1; i < p.gearbox.ratios.length; i++) {
-    if (p.gearbox.ratios[i] >= p.gearbox.ratios[i - 1]) { warnings.push('ギア比が段ごとに小さくなっていない'); break; }
+    if (p.gearbox.ratios[i] >= p.gearbox.ratios[i - 1]) { warnings.push('Gear ratios do not decrease with each gear'); break; }
   }
-  if (p.gearbox.ratios.length === 0) warnings.push('ギア比が無い');
-  if (p.engine.idleRpm >= p.engine.redlineRpm) warnings.push('アイドル回転数がレブリミット以上');
+  if (p.gearbox.ratios.length === 0) warnings.push('No gear ratios defined');
+  if (p.engine.idleRpm >= p.engine.redlineRpm) warnings.push('Idle rpm is at or above the redline');
   return {
     frontCornerLoad, rearCornerLoad, sagFront, sagRear,
     freqFront: freq(p.front.spring, frontCornerLoad),
@@ -317,95 +317,95 @@ export interface FieldDef {
 }
 
 const diffOptions = [
-  { value: 'open', label: 'オープン' },
+  { value: 'open', label: 'Open' },
   { value: 'lsd', label: 'LSD' },
-  { value: 'locked', label: '直結' },
+  { value: 'locked', label: 'Locked' },
 ];
 
 function axleFields(axle: 'front' | 'rear', name: string): FieldDef[] {
-  const g = `サスペンションとタイヤ（${name}）`;
+  const g = `Suspension and tires (${name})`;
   return [
-    { path: `${axle}.track`, label: 'トレッド', group: g, kind: 'number', unit: 'm', min: 1.0, max: 2.2, step: 0.01 },
-    { path: `${axle}.tireRadius`, label: 'タイヤ半径', group: g, kind: 'number', unit: 'm', min: 0.2, max: 0.6, step: 0.005 },
-    { path: `${axle}.tireWidth`, label: 'タイヤ幅', group: g, kind: 'number', unit: 'm', min: 0.1, max: 0.45, step: 0.005 },
-    { path: `${axle}.wheelMass`, label: 'タイヤとホイールの質量', group: g, kind: 'number', unit: 'kg', min: 5, max: 60, step: 0.5 },
-    { path: `${axle}.spring`, label: 'ばね定数', group: g, kind: 'number', unit: 'N/m', min: 5000, max: 300000, step: 500 },
-    { path: `${axle}.damperBump`, label: '減衰（縮み）', group: g, kind: 'number', unit: 'N·s/m', min: 200, max: 20000, step: 100 },
-    { path: `${axle}.damperRebound`, label: '減衰（伸び）', group: g, kind: 'number', unit: 'N·s/m', min: 200, max: 20000, step: 100 },
-    { path: `${axle}.travel`, label: 'ストローク', group: g, kind: 'number', unit: 'm', min: 0.05, max: 0.5, step: 0.005 },
-    { path: `${axle}.antiRoll`, label: 'スタビライザー', group: g, kind: 'number', unit: 'N/m', min: 0, max: 150000, step: 500 },
-    { path: `${axle}.rollCenter`, label: 'ロールセンター高', group: g, kind: 'number', unit: 'm', min: 0, max: 0.4, step: 0.005 },
-    { path: `${axle}.brakeTorque`, label: '制動トルク（1輪）', group: g, kind: 'number', unit: 'N·m', min: 0, max: 6000, step: 50 },
+    { path: `${axle}.track`, label: 'Track width', group: g, kind: 'number', unit: 'm', min: 1.0, max: 2.2, step: 0.01 },
+    { path: `${axle}.tireRadius`, label: 'Tire radius', group: g, kind: 'number', unit: 'm', min: 0.2, max: 0.6, step: 0.005 },
+    { path: `${axle}.tireWidth`, label: 'Tire width', group: g, kind: 'number', unit: 'm', min: 0.1, max: 0.45, step: 0.005 },
+    { path: `${axle}.wheelMass`, label: 'Tire and wheel mass', group: g, kind: 'number', unit: 'kg', min: 5, max: 60, step: 0.5 },
+    { path: `${axle}.spring`, label: 'Spring rate', group: g, kind: 'number', unit: 'N/m', min: 5000, max: 300000, step: 500 },
+    { path: `${axle}.damperBump`, label: 'Damping (bump)', group: g, kind: 'number', unit: 'N·s/m', min: 200, max: 20000, step: 100 },
+    { path: `${axle}.damperRebound`, label: 'Damping (rebound)', group: g, kind: 'number', unit: 'N·s/m', min: 200, max: 20000, step: 100 },
+    { path: `${axle}.travel`, label: 'Travel', group: g, kind: 'number', unit: 'm', min: 0.05, max: 0.5, step: 0.005 },
+    { path: `${axle}.antiRoll`, label: 'Anti-roll bar', group: g, kind: 'number', unit: 'N/m', min: 0, max: 150000, step: 500 },
+    { path: `${axle}.rollCenter`, label: 'Roll center height', group: g, kind: 'number', unit: 'm', min: 0, max: 0.4, step: 0.005 },
+    { path: `${axle}.brakeTorque`, label: 'Brake torque (per wheel)', group: g, kind: 'number', unit: 'N·m', min: 0, max: 6000, step: 50 },
   ];
 }
 
 export const FIELDS: FieldDef[] = [
-  { path: 'name', label: '名前', group: '車体', kind: 'text' },
-  { path: 'color', label: '色', group: '車体', kind: 'color' },
-  { path: 'body.length', label: '全長', group: '車体', kind: 'number', unit: 'm', min: 2.5, max: 6, step: 0.01 },
-  { path: 'body.width', label: '全幅', group: '車体', kind: 'number', unit: 'm', min: 1.2, max: 2.4, step: 0.01 },
-  { path: 'body.height', label: '全高', group: '車体', kind: 'number', unit: 'm', min: 0.9, max: 2.2, step: 0.01 },
-  { path: 'body.groundClearance', label: '最低地上高', group: '車体', kind: 'number', unit: 'm', min: 0.05, max: 0.5, step: 0.005 },
-  { path: 'body.frontOverhang', label: 'フロントオーバーハング', group: '車体', kind: 'number', unit: 'm', min: 0.3, max: 1.5, step: 0.01 },
-  { path: 'wheelbase', label: 'ホイールベース', group: '車体', kind: 'number', unit: 'm', min: 1.8, max: 3.6, step: 0.005 },
-  { path: 'body.cabinFront', label: '窓の始まり', group: '車体', kind: 'number', unit: '%', min: 0.05, max: 0.7, step: 0.01, scale: 100 },
-  { path: 'body.cabinRear', label: '窓の終わり', group: '車体', kind: 'number', unit: '%', min: 0.4, max: 1.0, step: 0.01, scale: 100 },
-  { path: 'body.beltLine', label: '窓の下端', group: '車体', kind: 'number', unit: '%', min: 0.3, max: 0.8, step: 0.01, scale: 100 },
-  { path: 'body.mass', label: '車両質量', group: '車体', kind: 'number', unit: 'kg', min: 400, max: 4000, step: 5 },
-  { path: 'body.weightFront', label: '前軸の荷重配分', group: '車体', kind: 'number', unit: '%', min: 0.3, max: 0.7, step: 0.005, scale: 100 },
-  { path: 'body.cgHeight', label: '重心高', group: '車体', kind: 'number', unit: 'm', min: 0.2, max: 1.2, step: 0.005 },
-  { path: 'body.inertiaScale', label: '慣性モーメントの倍率', group: '車体', kind: 'number', min: 0.5, max: 1.5, step: 0.01 },
-  { path: 'body.style', label: '車体の型', group: '車体', kind: 'select', options: [
-    { value: 'kei', label: '軽（背が高く鼻が短い）' }, { value: 'hatch', label: 'ハッチバック' }, { value: 'sedan', label: 'セダン（羽根付き）' },
-    { value: 'coupe', label: 'クーペ（後ろがなだらか）' }, { value: 'suv', label: 'SUV' }, { value: 'super', label: 'ミッドシップ（低く長い）' }] },
-  { path: 'body.driverSide', label: '運転席', group: '車体', kind: 'select', options: [{ value: 'right', label: '右' }, { value: 'left', label: '左' }] },
-  ...axleFields('front', '前'),
-  ...axleFields('rear', '後'),
-  { path: 'tire.mu', label: '摩擦係数', group: 'タイヤの摩擦', kind: 'number', min: 0.3, max: 2.0, step: 0.01 },
-  { path: 'tire.peakSlip', label: '最大摩擦の滑り率', group: 'タイヤの摩擦', kind: 'number', min: 0.03, max: 0.3, step: 0.005 },
-  { path: 'tire.peakAngleDeg', label: '最大摩擦の滑り角', group: 'タイヤの摩擦', kind: 'number', unit: '°', min: 2, max: 20, step: 0.1 },
-  { path: 'tire.slide', label: '滑り切ったときの摩擦の比', group: 'タイヤの摩擦', kind: 'number', min: 0.4, max: 1.0, step: 0.01 },
-  { path: 'tire.falloff', label: '最大摩擦の後の落ち方の幅', group: 'タイヤの摩擦', kind: 'number', min: 0.3, max: 5, step: 0.05 },
-  { path: 'tire.loadSensitivity', label: '荷重による摩擦の低下', group: 'タイヤの摩擦', kind: 'number', min: 0, max: 0.4, step: 0.01 },
-  { path: 'tire.relaxLength', label: '緩和長（横）', group: 'タイヤの摩擦', kind: 'number', unit: 'm', min: 0.1, max: 1.5, step: 0.01 },
-  { path: 'steer.maxAngleDeg', label: '最大切れ角', group: '操舵', kind: 'number', unit: '°', min: 10, max: 50, step: 0.5 },
-  { path: 'steer.ackermann', label: 'アッカーマン率', group: '操舵', kind: 'number', unit: '%', min: 0, max: 1, step: 0.05, scale: 100 },
-  { path: 'steer.ratio', label: 'ステアリングギア比', group: '操舵', kind: 'number', min: 6, max: 30, step: 0.1 },
-  { path: 'engine.torqueCurve', label: 'トルク曲線（rpm:N·m）', group: 'エンジン', kind: 'curve' },
-  { path: 'engine.idleRpm', label: 'アイドル回転数', group: 'エンジン', kind: 'number', unit: 'rpm', min: 500, max: 2000, step: 50 },
-  { path: 'engine.redlineRpm', label: 'レブリミット', group: 'エンジン', kind: 'number', unit: 'rpm', min: 3000, max: 20000, step: 100 },
-  { path: 'engine.inertia', label: '回転部の慣性', group: 'エンジン', kind: 'number', unit: 'kg·m²', min: 0.03, max: 1.0, step: 0.01 },
-  { path: 'engine.engineBrake', label: 'エンジンブレーキ', group: 'エンジン', kind: 'number', unit: 'N·m', min: 0, max: 300, step: 5 },
-  { path: 'engine.cylinders', label: '気筒数', group: 'エンジン', kind: 'number', min: 1, max: 16, step: 1 },
-  { path: 'engine.layout', label: '気筒の並び', group: 'エンジン', kind: 'select', options: [{ value: 'inline', label: '直列' }, { value: 'v', label: 'V 型' }, { value: 'flat', label: '水平対向' }] },
-  { path: 'engine.turbo', label: 'ターボ', group: 'エンジン', kind: 'bool' },
-  { path: 'engine.exhaust', label: '排気音', group: 'エンジン', kind: 'select', options: [{ value: 'quiet', label: '静か' }, { value: 'sport', label: 'スポーツ' }, { value: 'race', label: 'レース（戻すとはじける）' }] },
-  { path: 'engine.orientation', label: '搭載の向き', group: 'エンジン', kind: 'select', options: [{ value: 'longitudinal', label: '縦置き' }, { value: 'transverse', label: '横置き' }] },
-  { path: 'gearbox.ratios', label: 'ギア比（1速から）', group: '変速機', kind: 'list' },
-  { path: 'gearbox.reverse', label: '後退のギア比', group: '変速機', kind: 'number', min: 1, max: 6, step: 0.01 },
-  { path: 'gearbox.finalDrive', label: '最終減速比', group: '変速機', kind: 'number', min: 1.5, max: 8, step: 0.01 },
-  { path: 'gearbox.efficiency', label: '伝達効率', group: '変速機', kind: 'number', unit: '%', min: 0.6, max: 1, step: 0.01, scale: 100 },
-  { path: 'gearbox.shiftTime', label: '変速にかかる時間', group: '変速機', kind: 'number', unit: 's', min: 0.02, max: 1, step: 0.01 },
-  { path: 'drive.layout', label: '駆動方式', group: '駆動方式とデフ', kind: 'select', options: ['FF', 'FR', 'MR', 'RR', '4WD'].map((v) => ({ value: v, label: v })) },
-  { path: 'drive.frontDiff.type', label: '前デフ', group: '駆動方式とデフ', kind: 'select', options: diffOptions },
-  { path: 'drive.frontDiff.preload', label: '前デフの初期締結', group: '駆動方式とデフ', kind: 'number', unit: 'N·m', min: 0, max: 500, step: 5 },
-  { path: 'drive.frontDiff.lock', label: '前デフの締結率', group: '駆動方式とデフ', kind: 'number', unit: '%', min: 0, max: 1, step: 0.05, scale: 100 },
-  { path: 'drive.rearDiff.type', label: '後デフ', group: '駆動方式とデフ', kind: 'select', options: diffOptions },
-  { path: 'drive.rearDiff.preload', label: '後デフの初期締結', group: '駆動方式とデフ', kind: 'number', unit: 'N·m', min: 0, max: 500, step: 5 },
-  { path: 'drive.rearDiff.lock', label: '後デフの締結率', group: '駆動方式とデフ', kind: 'number', unit: '%', min: 0, max: 1, step: 0.05, scale: 100 },
-  { path: 'drive.centerDiff.type', label: 'センターデフ（4WD）', group: '駆動方式とデフ', kind: 'select', options: diffOptions },
-  { path: 'drive.centerDiff.preload', label: 'センターデフの初期締結', group: '駆動方式とデフ', kind: 'number', unit: 'N·m', min: 0, max: 500, step: 5 },
-  { path: 'drive.centerDiff.lock', label: 'センターデフの締結率', group: '駆動方式とデフ', kind: 'number', unit: '%', min: 0, max: 1, step: 0.05, scale: 100 },
-  { path: 'drive.frontShare', label: '前輪へのトルク配分（4WD）', group: '駆動方式とデフ', kind: 'number', unit: '%', min: 0.1, max: 0.9, step: 0.05, scale: 100 },
-  { path: 'aero.cd', label: '抗力係数 Cd', group: '空力', kind: 'number', min: 0.15, max: 1.2, step: 0.01 },
-  { path: 'aero.frontalArea', label: '前面投影面積', group: '空力', kind: 'number', unit: 'm²', min: 1.0, max: 5.0, step: 0.01 },
-  { path: 'aero.clFront', label: 'ダウンフォース係数（前）', group: '空力', kind: 'number', min: -0.3, max: 3, step: 0.01 },
-  { path: 'aero.clRear', label: 'ダウンフォース係数（後）', group: '空力', kind: 'number', min: -0.3, max: 3, step: 0.01 },
-  { path: 'aero.centerOffset', label: '空力中心の位置（重心より前が正）', group: '空力', kind: 'number', unit: 'm', min: -1.5, max: 1.5, step: 0.01 },
-  { path: 'assists.abs', label: 'ABS', group: '運転の補助', kind: 'bool' },
-  { path: 'assists.tcs', label: 'トラクションコントロール（エンジンブレーキの制御を含む）', group: '運転の補助', kind: 'bool' },
-  { path: 'assists.esc', label: '横滑り防止（ESC）', group: '運転の補助', kind: 'bool' },
-  { path: 'assists.steerAssist', label: '切れ角の補助（前輪が最大摩擦の滑り角を超えないようにする）', group: '運転の補助', kind: 'bool' },
+  { path: 'name', label: 'Name', group: 'Body', kind: 'text' },
+  { path: 'color', label: 'Color', group: 'Body', kind: 'color' },
+  { path: 'body.length', label: 'Length', group: 'Body', kind: 'number', unit: 'm', min: 2.5, max: 6, step: 0.01 },
+  { path: 'body.width', label: 'Width', group: 'Body', kind: 'number', unit: 'm', min: 1.2, max: 2.4, step: 0.01 },
+  { path: 'body.height', label: 'Height', group: 'Body', kind: 'number', unit: 'm', min: 0.9, max: 2.2, step: 0.01 },
+  { path: 'body.groundClearance', label: 'Ground clearance', group: 'Body', kind: 'number', unit: 'm', min: 0.05, max: 0.5, step: 0.005 },
+  { path: 'body.frontOverhang', label: 'Front overhang', group: 'Body', kind: 'number', unit: 'm', min: 0.3, max: 1.5, step: 0.01 },
+  { path: 'wheelbase', label: 'Wheelbase', group: 'Body', kind: 'number', unit: 'm', min: 1.8, max: 3.6, step: 0.005 },
+  { path: 'body.cabinFront', label: 'Window start', group: 'Body', kind: 'number', unit: '%', min: 0.05, max: 0.7, step: 0.01, scale: 100 },
+  { path: 'body.cabinRear', label: 'Window end', group: 'Body', kind: 'number', unit: '%', min: 0.4, max: 1.0, step: 0.01, scale: 100 },
+  { path: 'body.beltLine', label: 'Window bottom edge', group: 'Body', kind: 'number', unit: '%', min: 0.3, max: 0.8, step: 0.01, scale: 100 },
+  { path: 'body.mass', label: 'Car mass', group: 'Body', kind: 'number', unit: 'kg', min: 400, max: 4000, step: 5 },
+  { path: 'body.weightFront', label: 'Front weight distribution', group: 'Body', kind: 'number', unit: '%', min: 0.3, max: 0.7, step: 0.005, scale: 100 },
+  { path: 'body.cgHeight', label: 'CoG height', group: 'Body', kind: 'number', unit: 'm', min: 0.2, max: 1.2, step: 0.005 },
+  { path: 'body.inertiaScale', label: 'Moment of inertia multiplier', group: 'Body', kind: 'number', min: 0.5, max: 1.5, step: 0.01 },
+  { path: 'body.style', label: 'Body style', group: 'Body', kind: 'select', options: [
+    { value: 'kei', label: 'Kei (tall, short nose)' }, { value: 'hatch', label: 'Hatchback' }, { value: 'sedan', label: 'Sedan (with wing)' },
+    { value: 'coupe', label: 'Coupe (sloping rear)' }, { value: 'suv', label: 'SUV' }, { value: 'super', label: 'Mid-engine (low and long)' }] },
+  { path: 'body.driverSide', label: 'Driver seat', group: 'Body', kind: 'select', options: [{ value: 'right', label: 'Right' }, { value: 'left', label: 'Left' }] },
+  ...axleFields('front', 'Front'),
+  ...axleFields('rear', 'Rear'),
+  { path: 'tire.mu', label: 'Friction coefficient', group: 'Tire grip', kind: 'number', min: 0.3, max: 2.0, step: 0.01 },
+  { path: 'tire.peakSlip', label: 'Slip ratio at peak grip', group: 'Tire grip', kind: 'number', min: 0.03, max: 0.3, step: 0.005 },
+  { path: 'tire.peakAngleDeg', label: 'Slip angle at peak grip', group: 'Tire grip', kind: 'number', unit: '°', min: 2, max: 20, step: 0.1 },
+  { path: 'tire.slide', label: 'Friction ratio when fully sliding', group: 'Tire grip', kind: 'number', min: 0.4, max: 1.0, step: 0.01 },
+  { path: 'tire.falloff', label: 'Falloff width after peak grip', group: 'Tire grip', kind: 'number', min: 0.3, max: 5, step: 0.05 },
+  { path: 'tire.loadSensitivity', label: 'Load sensitivity of friction', group: 'Tire grip', kind: 'number', min: 0, max: 0.4, step: 0.01 },
+  { path: 'tire.relaxLength', label: 'Relaxation length (lateral)', group: 'Tire grip', kind: 'number', unit: 'm', min: 0.1, max: 1.5, step: 0.01 },
+  { path: 'steer.maxAngleDeg', label: 'Max steering angle', group: 'Steering', kind: 'number', unit: '°', min: 10, max: 50, step: 0.5 },
+  { path: 'steer.ackermann', label: 'Ackermann ratio', group: 'Steering', kind: 'number', unit: '%', min: 0, max: 1, step: 0.05, scale: 100 },
+  { path: 'steer.ratio', label: 'Steering ratio', group: 'Steering', kind: 'number', min: 6, max: 30, step: 0.1 },
+  { path: 'engine.torqueCurve', label: 'Torque curve (rpm:N·m)', group: 'Engine', kind: 'curve' },
+  { path: 'engine.idleRpm', label: 'Idle rpm', group: 'Engine', kind: 'number', unit: 'rpm', min: 500, max: 2000, step: 50 },
+  { path: 'engine.redlineRpm', label: 'Redline', group: 'Engine', kind: 'number', unit: 'rpm', min: 3000, max: 20000, step: 100 },
+  { path: 'engine.inertia', label: 'Rotating inertia', group: 'Engine', kind: 'number', unit: 'kg·m²', min: 0.03, max: 1.0, step: 0.01 },
+  { path: 'engine.engineBrake', label: 'Engine braking', group: 'Engine', kind: 'number', unit: 'N·m', min: 0, max: 300, step: 5 },
+  { path: 'engine.cylinders', label: 'Cylinders', group: 'Engine', kind: 'number', min: 1, max: 16, step: 1 },
+  { path: 'engine.layout', label: 'Cylinder layout', group: 'Engine', kind: 'select', options: [{ value: 'inline', label: 'Inline' }, { value: 'v', label: 'V' }, { value: 'flat', label: 'Flat (boxer)' }] },
+  { path: 'engine.turbo', label: 'Turbo', group: 'Engine', kind: 'bool' },
+  { path: 'engine.exhaust', label: 'Exhaust note', group: 'Engine', kind: 'select', options: [{ value: 'quiet', label: 'Quiet' }, { value: 'sport', label: 'Sport' }, { value: 'race', label: 'Race (pops on lift-off)' }] },
+  { path: 'engine.orientation', label: 'Engine orientation', group: 'Engine', kind: 'select', options: [{ value: 'longitudinal', label: 'Longitudinal' }, { value: 'transverse', label: 'Transverse' }] },
+  { path: 'gearbox.ratios', label: 'Gear ratios (from 1st)', group: 'Gearbox', kind: 'list' },
+  { path: 'gearbox.reverse', label: 'Reverse gear ratio', group: 'Gearbox', kind: 'number', min: 1, max: 6, step: 0.01 },
+  { path: 'gearbox.finalDrive', label: 'Final drive', group: 'Gearbox', kind: 'number', min: 1.5, max: 8, step: 0.01 },
+  { path: 'gearbox.efficiency', label: 'Transmission efficiency', group: 'Gearbox', kind: 'number', unit: '%', min: 0.6, max: 1, step: 0.01, scale: 100 },
+  { path: 'gearbox.shiftTime', label: 'Shift time', group: 'Gearbox', kind: 'number', unit: 's', min: 0.02, max: 1, step: 0.01 },
+  { path: 'drive.layout', label: 'Drive layout', group: 'Drive layout and differentials', kind: 'select', options: ['FF', 'FR', 'MR', 'RR', '4WD'].map((v) => ({ value: v, label: v })) },
+  { path: 'drive.frontDiff.type', label: 'Front differential', group: 'Drive layout and differentials', kind: 'select', options: diffOptions },
+  { path: 'drive.frontDiff.preload', label: 'Front diff preload', group: 'Drive layout and differentials', kind: 'number', unit: 'N·m', min: 0, max: 500, step: 5 },
+  { path: 'drive.frontDiff.lock', label: 'Front diff lock ratio', group: 'Drive layout and differentials', kind: 'number', unit: '%', min: 0, max: 1, step: 0.05, scale: 100 },
+  { path: 'drive.rearDiff.type', label: 'Rear differential', group: 'Drive layout and differentials', kind: 'select', options: diffOptions },
+  { path: 'drive.rearDiff.preload', label: 'Rear diff preload', group: 'Drive layout and differentials', kind: 'number', unit: 'N·m', min: 0, max: 500, step: 5 },
+  { path: 'drive.rearDiff.lock', label: 'Rear diff lock ratio', group: 'Drive layout and differentials', kind: 'number', unit: '%', min: 0, max: 1, step: 0.05, scale: 100 },
+  { path: 'drive.centerDiff.type', label: 'Center differential (4WD)', group: 'Drive layout and differentials', kind: 'select', options: diffOptions },
+  { path: 'drive.centerDiff.preload', label: 'Center diff preload', group: 'Drive layout and differentials', kind: 'number', unit: 'N·m', min: 0, max: 500, step: 5 },
+  { path: 'drive.centerDiff.lock', label: 'Center diff lock ratio', group: 'Drive layout and differentials', kind: 'number', unit: '%', min: 0, max: 1, step: 0.05, scale: 100 },
+  { path: 'drive.frontShare', label: 'Front torque split (4WD)', group: 'Drive layout and differentials', kind: 'number', unit: '%', min: 0.1, max: 0.9, step: 0.05, scale: 100 },
+  { path: 'aero.cd', label: 'Drag coefficient (Cd)', group: 'Aerodynamics', kind: 'number', min: 0.15, max: 1.2, step: 0.01 },
+  { path: 'aero.frontalArea', label: 'Frontal area', group: 'Aerodynamics', kind: 'number', unit: 'm²', min: 1.0, max: 5.0, step: 0.01 },
+  { path: 'aero.clFront', label: 'Downforce coefficient (front)', group: 'Aerodynamics', kind: 'number', min: -0.3, max: 3, step: 0.01 },
+  { path: 'aero.clRear', label: 'Downforce coefficient (rear)', group: 'Aerodynamics', kind: 'number', min: -0.3, max: 3, step: 0.01 },
+  { path: 'aero.centerOffset', label: 'Aero center position (positive ahead of CoG)', group: 'Aerodynamics', kind: 'number', unit: 'm', min: -1.5, max: 1.5, step: 0.01 },
+  { path: 'assists.abs', label: 'ABS', group: 'Driver aids', kind: 'bool' },
+  { path: 'assists.tcs', label: 'Traction control (includes engine braking control)', group: 'Driver aids', kind: 'bool' },
+  { path: 'assists.esc', label: 'Stability control (ESC)', group: 'Driver aids', kind: 'bool' },
+  { path: 'assists.steerAssist', label: 'Steering assist (keeps the front wheels from exceeding the peak-grip slip angle)', group: 'Driver aids', kind: 'bool' },
 ];
 
 export function getPath(obj: unknown, path: string): unknown {

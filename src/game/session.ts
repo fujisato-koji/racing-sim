@@ -11,6 +11,7 @@ import type { Controls } from '../sim/vehicle';
 import { Vehicle } from '../sim/vehicle';
 import type { Rapier } from '../sim/world';
 import { PhysicsWorld } from '../sim/world';
+import type { TerrainSampler } from '../sim/terrain-sampler';
 import { TimeAttack, carKeyOf } from './timeattack';
 
 export interface SessionConfig {
@@ -20,6 +21,8 @@ export interface SessionConfig {
   laps: number;
   /** race は AI と競う。attack は 1 台で周回し、最速の周をゴーストとして残す */
   mode?: 'race' | 'attack';
+  /** 実在のコースのまわりの標高（遠景のデータ）。無ければコースの標高から作る */
+  terrain?: TerrainSampler;
 }
 
 /** タイムアタックは終わりを決めず、やめるまで周回する */
@@ -27,7 +30,7 @@ const ATTACK_LAPS = 999;
 
 const lapText = (t: number) => { const m = Math.floor(t / 60); return `${m}:${(t - m * 60).toFixed(2).padStart(5, '0')}`; };
 
-const AI_NAMES = ['赤城', '榛名', '妙義', '筑波', '箱根', '碓氷', '六甲'];
+const AI_NAMES = ['Akagi', 'Haruna', 'Myogi', 'Tsukuba', 'Hakone', 'Usui', 'Rokko'];
 
 export class Session {
   readonly pw: PhysicsWorld;
@@ -46,7 +49,7 @@ export class Session {
 
   constructor(R: Rapier, readonly cfg: SessionConfig, readonly playerInput: (dt: number, v: Vehicle) => Controls) {
     this.pw = new PhysicsWorld(R);
-    this.course = buildCourse(cfg.course);
+    this.course = buildCourse(cfg.course, cfg.terrain);
     populate(this.pw, this.course);
     const grid = this.course.grid;
     const hasTrack = this.course.path.length > 0;
@@ -63,7 +66,7 @@ export class Session {
       this.pw.vehicles.push(v);
       const lane = ((this.racers.length % 3) - 1) * 1.5;
       const ai = !c.isPlayer && hasTrack ? new AiDriver(this.course, v, 0.86 + ((this.racers.length * 37) % 10) / 100, lane) : null;
-      const name = c.isPlayer ? 'あなた' : AI_NAMES[this.racers.length % AI_NAMES.length];
+      const name = c.isPlayer ? 'You' : AI_NAMES[this.racers.length % AI_NAMES.length];
       this.racers.push(makeRacer(name, c.p.color, v, c.isPlayer, ai));
     }
     this.player = this.racers.find((r) => r.isPlayer) ?? null;
@@ -98,7 +101,7 @@ export class Session {
       const before = this.attack.laps.length;
       this.attack.step();
       const l = this.attack.laps[before];
-      if (l) this.say(l.best ? `最速の周を更新 ${lapText(l.time)}` : l.valid ? `周のタイム ${lapText(l.time)}` : `周のタイム ${lapText(l.time)}（記録なし）`, 3);
+      if (l) this.say(l.best ? `New best lap ${lapText(l.time)}` : l.valid ? `Lap ${lapText(l.time)}` : `Lap ${lapText(l.time)} (no time)`, 3);
     }
     for (const r of this.racers) this.watch(r, dt);
   }
@@ -117,10 +120,10 @@ export class Session {
       const trying = v.controls.throttle > 0.3 || v.controls.brake > 0.3;
       const still = Math.abs(v.speed) < 1 && v.linvel.length() < 1.2;
       r.stuck = trying && still && !this.paused && this.race.state !== 'countdown' ? r.stuck + dt : 0;
-      if (r.stuck > 1.5 && r.stuck - dt <= 1.5) this.say('動けないときは R（スマホは「戻す」）でコースに戻せます', 3);
+      if (r.stuck > 1.5 && r.stuck - dt <= 1.5) this.say('Stuck? Press R (or tap Reset) to get back on track', 3);
       if (r.upsideDown > 4 || r.stuck > 4) {
         this.respawn(r);
-        this.say(this.attack ? '動けないのでコースに戻しました。この周は記録にしません' : '動けないのでコースに戻しました', 2.5);
+        this.say(this.attack ? 'Moved you back to the track. This lap is invalid' : 'Moved you back to the track', 2.5);
       }
     }
   }
@@ -134,7 +137,7 @@ export class Session {
     const v = r.vehicle;
     if (r.isPlayer && this.attack && this.race.state === 'running') {
       this.attack.markInvalid();
-      this.say('コースに戻したので、この周は記録にしません', 2.5);
+      this.say('Lap invalid: you were reset to the track', 2.5);
     }
     const path = this.course.path;
     if (path.length === 0) {

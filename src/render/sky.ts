@@ -18,7 +18,7 @@ export interface SkySettings {
 
 export const DAY: SkySettings = {
   top: 0x2f6fc0, horizon: 0xc7dbeb, ground: 0x6b6f5a, sunElevation: 38, sunAzimuth: 135,
-  sunColor: 0xfff1d8, sunIntensity: 2.8, ambient: 0.55, fogNear: 300, fogFar: 2600,
+  sunColor: 0xfff1d8, sunIntensity: 2.8, ambient: 0.55, fogNear: 100, fogFar: 36000,
 };
 
 export function sunDirection(s: SkySettings) {

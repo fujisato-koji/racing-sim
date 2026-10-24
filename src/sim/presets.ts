@@ -13,7 +13,7 @@ const assists = { abs: true, tcs: true, esc: true, steerAssist: true };
 
 export const CAR_PRESETS: CarParams[] = [
   {
-    id: 'kei', name: '軽自動車', color: '#e8e2d0',
+    id: 'kei', name: 'Kei Car', color: '#e8e2d0',
     body: { length: 3.395, width: 1.475, height: 1.65, groundClearance: 0.15, frontOverhang: 0.5, cabinFront: 0.22, cabinRear: 0.97, beltLine: 0.52,
       mass: 860, weightFront: 0.6, cgHeight: 0.58, inertiaScale: 1, driverSide: 'right', style: 'kei' },
     wheelbase: 2.46,
@@ -29,7 +29,7 @@ export const CAR_PRESETS: CarParams[] = [
     assists,
   },
   {
-    id: 'hatch', name: '小型ハッチバック', color: '#3d6fb6',
+    id: 'hatch', name: 'Compact Hatch', color: '#3d6fb6',
     body: { length: 4.0, width: 1.7, height: 1.48, groundClearance: 0.14, frontOverhang: 0.85, cabinFront: 0.31, cabinRear: 0.95, beltLine: 0.6,
       mass: 1200, weightFront: 0.61, cgHeight: 0.52, inertiaScale: 1, driverSide: 'right', style: 'hatch' },
     wheelbase: 2.55,
@@ -45,7 +45,7 @@ export const CAR_PRESETS: CarParams[] = [
     assists,
   },
   {
-    id: 'fr-sport', name: 'FR スポーツ', color: '#c8312b',
+    id: 'fr-sport', name: 'FR Sports', color: '#c8312b',
     body: { length: 4.27, width: 1.775, height: 1.31, groundClearance: 0.13, frontOverhang: 0.85, cabinFront: 0.38, cabinRear: 0.82, beltLine: 0.63,
       mass: 1270, weightFront: 0.53, cgHeight: 0.46, inertiaScale: 1, driverSide: 'right', style: 'coupe' },
     wheelbase: 2.575,
@@ -61,7 +61,7 @@ export const CAR_PRESETS: CarParams[] = [
     assists,
   },
   {
-    id: 'rally', name: '4WD ラリー', color: '#2f7d4a',
+    id: 'rally', name: '4WD Rally', color: '#2f7d4a',
     body: { length: 4.3, width: 1.8, height: 1.45, groundClearance: 0.18, frontOverhang: 0.9, cabinFront: 0.33, cabinRear: 0.87, beltLine: 0.6,
       mass: 1300, weightFront: 0.58, cgHeight: 0.52, inertiaScale: 1, driverSide: 'right', style: 'sedan' },
     wheelbase: 2.62,
@@ -77,7 +77,7 @@ export const CAR_PRESETS: CarParams[] = [
     assists,
   },
   {
-    id: 'mr-super', name: 'MR スーパーカー', color: '#f0b400',
+    id: 'mr-super', name: 'MR Supercar', color: '#f0b400',
     body: { length: 4.5, width: 1.95, height: 1.2, groundClearance: 0.11, frontOverhang: 1.0, cabinFront: 0.31, cabinRear: 0.64, beltLine: 0.6,
       mass: 1500, weightFront: 0.42, cgHeight: 0.43, inertiaScale: 0.9, driverSide: 'left', style: 'super' },
     wheelbase: 2.65,

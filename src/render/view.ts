@@ -10,6 +10,9 @@ import { Gauges } from '../ui/gauges';
 import { CarMesh } from './car-mesh';
 import { CourseMesh } from './course-mesh';
 import { Globe } from './globe';
+import type { SceneryData, SceneryMesh } from './scenery';
+import { SCENERY_LAYER, buildScenery } from './scenery';
+import { themeOf } from './themes';
 import { quality } from './quality';
 import type { SkySettings } from './sky';
 import { DAY, Sky, sunDirection } from './sky';
@@ -27,6 +30,10 @@ export class GameView {
   private skySettings: SkySettings = DAY;
   private readonly mainCam = new THREE.PerspectiveCamera(70, 1, 0.08, 6000);
   private readonly mirrorCam = new THREE.PerspectiveCamera(24, 3.6, 0.1, 800);
+  // 遠景（まわり 30 km の地形と空）を先に描くカメラ。手前とは奥行きを分ける
+  private readonly farCam = new THREE.PerspectiveCamera(70, 1, 30, 80000);
+  private readonly mirrorFarCam = new THREE.PerspectiveCamera(24, 3.6, 30, 80000);
+  private scenery: SceneryMesh | null = null;
   private readonly mirrorTarget = new THREE.WebGLRenderTarget(512, 142);
   private readonly hudScene = new THREE.Scene();
   private readonly hudCam = new THREE.OrthographicCamera(0, 1, 1, 0, -1, 1);
@@ -73,10 +80,17 @@ export class GameView {
     container.appendChild(this.renderer.domElement);
 
     this.scene.fog = new THREE.Fog(0xc7dbeb, 300, 2600);
+    this.sky.mesh.layers.set(SCENERY_LAYER);
     this.scene.add(this.sky.mesh);
+    this.farCam.layers.set(SCENERY_LAYER);
+    this.mirrorFarCam.layers.set(SCENERY_LAYER);
     this.hemi = new THREE.HemisphereLight(0xcfe4ff, 0x56603f, 0.55);
+    this.hemi.layers.enable(SCENERY_LAYER);
     this.scene.add(this.hemi);
     this.sun = new THREE.DirectionalLight(0xfff2dd, 2.6);
+    this.sun.layers.enable(SCENERY_LAYER);
+    // 影は 1 フレームに 1 回だけ作る（遠景、手前、ミラーで描き分けても）
+    this.renderer.shadowMap.autoUpdate = false;
     this.sun.castShadow = true;
     const sm = quality.level === 'high' ? 2048 : 1024;
     this.sun.shadow.mapSize.set(sm, sm);
@@ -131,7 +145,8 @@ export class GameView {
     this.sun.color.set(s.sunColor);
     this.sun.intensity = s.sunIntensity;
     this.hemi.intensity = s.ambient;
-    this.hemi.color.set(s.horizon);
+    this.hemi.color.set(s.horizon).lerp(new THREE.Color(s.top), 0.5);
+    this.hemi.groundColor.set(s.ground).multiplyScalar(0.85);
     // 映り込み：空だけの場面から環境マップを作る（質が低いときは作らない）
     this.envRT?.dispose();
     this.envRT = null;
@@ -191,11 +206,18 @@ export class GameView {
   }
 
   // ------------------------------------------------------------ レース
-  setSession(s: Session) {
+  setSession(s: Session, scenery: SceneryData | null = null) {
     this.clearSession();
     this.session = s;
-    this.courseMesh = new CourseMesh(s.course, s.pw);
+    const id = s.course.def.id;
+    // コースの色のテーマ（空、光、霞、植生、建物の色）
+    const theme = themeOf(id);
+    this.setSky(theme.sky);
+    this.renderer.toneMappingExposure = theme.exposure;
+    this.courseMesh = new CourseMesh(s.course, s.pw, theme);
     this.scene.add(this.courseMesh.group);
+    this.scenery = buildScenery(s.course, scenery, theme, [...id].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) % 9973, 7));
+    this.scene.add(this.scenery.group);
     for (const r of s.racers) {
       const m = new CarMesh(r.vehicle.p);
       this.cars.set(r.vehicle, m);
@@ -232,6 +254,8 @@ export class GameView {
 
   clearSession() {
     if (this.courseMesh) { this.scene.remove(this.courseMesh.group); this.courseMesh.dispose(); this.courseMesh = null; }
+    if (this.scenery) { this.scene.remove(this.scenery.group); this.scenery.dispose(); this.scenery = null; }
+    if (this.skySettings !== DAY) { this.setSky(DAY); this.renderer.toneMappingExposure = 1.05; }
     for (const m of this.cars.values()) { this.scene.remove(m.group); m.dispose(); }
     this.cars.clear();
     if (this.ghost) { this.scene.remove(this.ghost.group); this.ghost.dispose(); this.ghost = null; }
@@ -289,8 +313,19 @@ export class GameView {
     this.sun.target.position.copy(pos);
     this.sun.position.copy(pos).addScaledVector(sunDirection(this.skySettings), 150);
     this.sky.mesh.position.copy(this.mainCam.position);
+    this.renderer.shadowMap.needsUpdate = true;
 
     const r = this.renderer;
+    // 遠景を描いてから奥行きを消し、手前を重ねる
+    const far = (cam: THREE.PerspectiveCamera, fc: THREE.PerspectiveCamera) => {
+      fc.position.copy(cam.position);
+      fc.quaternion.copy(cam.quaternion);
+      fc.fov = cam.fov; fc.aspect = cam.aspect;
+      fc.updateProjectionMatrix();
+      this.sky.mesh.position.copy(cam.position);
+      r.render(this.scene, fc);
+      r.clearDepth();
+    };
     if (this.showMirror) {
       // 鏡は目の少し前と上。フロントガラスが寝ているので、その高さでのガラスより内側に置く
       const my = geo.eye[1] + 0.08;
@@ -301,10 +336,14 @@ export class GameView {
       this.mirrorCam.quaternion.copy(quat).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI));
       r.setRenderTarget(this.mirrorTarget);
       r.clear();
+      this.mirrorCam.updateMatrixWorld();
+      far(this.mirrorCam, this.mirrorFarCam);
       r.render(this.scene, this.mirrorCam);
     }
     r.setRenderTarget(null);
     r.clear();
+    this.mainCam.updateMatrixWorld();
+    far(this.mainCam, this.farCam);
     r.render(this.scene, this.mainCam);
     if (this.showMirror) {
       r.clearDepth();
@@ -359,6 +398,7 @@ export class GameView {
     // メニューは左に出るので、車は右半分に見せる
     this.garageCam.lookAt(-L * 0.55, 0.35, L * 0.2);
     const r = this.renderer;
+    r.shadowMap.needsUpdate = true;
     r.setRenderTarget(null);
     r.clear();
     r.render(this.garage, this.garageCam);

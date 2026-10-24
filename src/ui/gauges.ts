@@ -110,7 +110,7 @@ export class Gauges {
     g.fillText(String(Math.round(kmh)), sx, cy + R * 0.58);
     if (v.manual) {
       g.fillStyle = '#9aa4b2'; g.font = `${Math.round(R * 0.1)}px sans-serif`;
-      g.fillText('手動', tx, cy - R * 0.32);
+      g.fillText('Manual', tx, cy - R * 0.32);
     }
     // 変速の合図（5 つのランプが順に灯り、レブリミットで点滅）
     const shiftAt = red * 0.97;

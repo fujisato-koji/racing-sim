@@ -1,6 +1,7 @@
 // コース。定義（中心線、標高、ジャンプ、路面、置く物）から、地形、路面、衝突形状、走行経路を作る。
 // 描画と物理の両方がここで作った配列を使う。
 import { CatmullRomCurve3, Vector3 } from 'three';
+import type { TerrainSampler } from './terrain-sampler';
 import type { SurfaceId } from './surfaces';
 import { SURFACES } from './surfaces';
 import type { PhysicsWorld } from './world';
@@ -91,7 +92,9 @@ export interface MeshPart {
 export interface CourseData {
   def: CourseDef;
   bounds: { x0: number; z0: number; x1: number; z1: number };
-  terrain: { nx: number; nz: number; cell: number; vertices: Float32Array; colors: Float32Array; parts: MeshPart[] };
+  /** 水面の高さ（海や湖が無ければ −∞） */
+  seaY: number;
+  terrain: { nx: number; nz: number; cell: number; vertices: Float32Array; colors: Float32Array; parts: MeshPart[]; nature: Float32Array };
   road: { vertices: Float32Array; uvs: Float32Array; parts: MeshPart[] } | null;
   shoulder: { vertices: Float32Array; indices: Uint32Array; surface: SurfaceId } | null;
   path: PathSample[];
@@ -343,12 +346,15 @@ class PathIndex {
 }
 
 // ---------------------------------------------------------------- 組み立て
-export function buildCourse(def: CourseDef): CourseData {
+/** terrain があれば、コースのまわりの地形をその標高で作る（実在のコースの遠景データ） */
+export function buildCourse(def: CourseDef, terrain?: TerrainSampler): CourseData {
   const t = def.track;
   let path: PathSample[] = [], length = 0;
   if (t) ({ path, length } = buildPath(def, t));
   const width = t?.width ?? 0;
-  const reach = width / 2 + SHOULDER + BLEND;
+  // 標高データの地形は道の高さとずれがあるので、道の縁から長めになじませる
+  const blend = terrain ? 45 : BLEND;
+  const reach = width / 2 + SHOULDER + blend;
   const index = t ? new PathIndex(path, 16, reach) : null;
   const n = path.length;
   const roadY = (i: number, u: number) => path[i].y + (path[(i + 1) % n].y - path[i].y) * u;
@@ -370,7 +376,11 @@ export function buildCourse(def: CourseDef): CourseData {
 
   // 実在のコース：周りの地形を、コースの標高から距離の重みでなめらかに作る（40 m の格子）
   let field: ((x: number, z: number) => number) | null = null;
-  if (t && def.terrainFromTrack) {
+  const seaY = terrain?.seaY ?? -Infinity;
+  if (t && terrain) {
+    // 水の底は水面より下に（手前の水面と重ならないように）
+    field = (x: number, z: number) => { const y = terrain.height(x, z) - 0.3; return y < seaY + 0.6 ? Math.min(y, seaY - 1.5) : y; };
+  } else if (t && def.terrainFromTrack) {
     const fc = 40, fx = Math.ceil((x1 - x0) / fc) + 1, fz = Math.ceil((z1 - z0) / fc) + 1;
     const grid = new Float32Array(fx * fz);
     const samples = path.filter((_, i) => i % 8 === 0);
@@ -424,7 +434,7 @@ export function buildCourse(def: CourseDef): CourseData {
       let v: number;
       if (q.d < e + 1.5) v = ry - sink;
       else if (q.d < e + SHOULDER) v = ry - sink + ((sink - 0.12) * (q.d - e - 1.5)) / (SHOULDER - 1.5);
-      else v = ry - 0.12 + (hl - (ry - 0.12)) * smooth((q.d - e - SHOULDER) / BLEND);
+      else v = ry - 0.12 + (hl - (ry - 0.12)) * smooth((q.d - e - SHOULDER) / blend);
       if (path[q.i].bridge && q.d < e + SHOULDER + 4) continue;
       h = Math.min(h, v);
     }
@@ -434,11 +444,22 @@ export function buildCourse(def: CourseDef): CourseData {
   // 地形
   const vertices = new Float32Array((nx + 1) * (nz + 1) * 3);
   const colors = new Float32Array((nx + 1) * (nz + 1) * 3);
+  // 道から離れた草地は、描画で遠景と同じ植生の色にする（0 は路面の種類の色のまま、1 は植生の色）
+  // −1 は路面の種類の色のまま。道の縁から草地は 8 m、市街地（コンクリート）は 5 m より先を植生や街の色にする
+  const nature = new Float32Array((nx + 1) * (nz + 1)).fill(-1);
+  const natural = def.ground === 'grass' || def.ground === 'concrete';
+  const natStart = def.ground === 'concrete' ? 5 : 8;
   const shade = rng(7);
   for (let j = 0; j <= nz; j++) for (let i = 0; i <= nx; i++) {
     const x = x0 + i * cell, z = z0 + j * cell, k = (j * (nx + 1) + i) * 3;
     vertices[k] = x; vertices[k + 1] = terrainHeight(x, z); vertices[k + 2] = z;
-    const c = SURFACES[surfaceAt(x, z)].color;
+    const sid = surfaceAt(x, z);
+    const c = SURFACES[sid].color;
+    if (natural && sid === def.ground) {
+      const q = index?.nearest(x, z);
+      const inPatch = (def.patches ?? []).some((p) => Math.abs(x - p.x) <= p.w / 2 + 6 && Math.abs(z - p.z) <= p.d / 2 + 6);
+      nature[k / 3] = inPatch ? -1 : smooth(((q ? q.d : 1e9) - width / 2 - SHOULDER - natStart) / 30);
+    }
     const v = (0.92 + shade() * 0.1) * (0.88 + 0.24 * (noise(x / 45 + 3.1, z / 45 - 1.7) * 0.5 + 0.5));
     colors[k] = (((c >> 16) & 255) / 255) * v; colors[k + 1] = (((c >> 8) & 255) / 255) * v; colors[k + 2] = ((c & 255) / 255) * v;
   }
@@ -639,13 +660,15 @@ export function buildCourse(def: CourseDef): CourseData {
   {
     const rnd = rng(31);
     const area = (x1 - x0) * (z1 - z0);
-    const want = Math.min(1600, Math.round(area / 900));
+    const want = Math.min(3200, Math.round(area / 500));
     for (let k = 0; k < want * 3 && trees.length < want; k++) {
       const x = x0 + 20 + rnd() * (x1 - x0 - 40), z = z0 + 20 + rnd() * (z1 - z0 - 40);
       if (surfaceAt(x, z) !== 'grass') continue;
       if (index) { const q = index.nearest(x, z); if (q && q.d < width / 2 + 18) continue; }
       if (!t && Math.abs(x) < 140 && Math.abs(z) < 140) continue;
-      trees.push([x, heightAt(x, z), z, 0.7 + rnd() * 0.8]);
+      const ty = heightAt(x, z);
+      if (ty < seaY + 0.8) continue;
+      trees.push([x, ty, z, 0.7 + rnd() * 0.8]);
     }
   }
 
@@ -691,6 +714,7 @@ export function buildCourse(def: CourseDef): CourseData {
           if (q && q.d < e + 4) { ok = false; break; }
         }
         if (!ok) continue;
+        if (heightAt(x, z) < seaY + 1) continue;
         buildings.push({ kind: 'block', x, y: heightAt(x, z) - 0.5, z, yaw: yawFromDir(p.tx, p.tz), length: len, depth, height: h, color: colors[Math.floor(rnd() * colors.length)] });
       }
     }
@@ -726,8 +750,8 @@ export function buildCourse(def: CourseDef): CourseData {
   }
 
   return {
-    def, bounds: { x0, z0, x1, z1 },
-    terrain: { nx, nz, cell, vertices, colors, parts: terrainParts },
+    def, bounds: { x0, z0, x1, z1 }, seaY,
+    terrain: { nx, nz, cell, vertices, colors, parts: terrainParts, nature },
     road, shoulder, path, length, width, ramps, rocks, walls, kerbs, trees, buildings, pillars, cones, tireStacks, grid, heightAt,
   };
 }

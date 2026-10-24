@@ -6,6 +6,11 @@ import type { CourseData } from '../sim/course';
 import { SURFACES } from '../sim/surfaces';
 import type { PhysicsWorld } from '../sim/world';
 import { quality } from './quality';
+import { cityMix, forestAmount, natureColor, paletteOf } from './scenery';
+import type { CourseTheme } from './themes';
+import { DEFAULT_THEME } from './themes';
+import type { TreeKind } from './trees';
+import { DOUBLE_SIDED, treeVariants } from './trees';
 import { checkerTexture, groundDetailTexture, roadTexture, stripeTexture } from './textures';
 
 /** 頂点の色を一色で塗る */
@@ -58,39 +63,34 @@ function barrierGeometry() {
   return new THREE.ExtrudeGeometry(s, { depth: 1, bevelEnabled: false }).translate(0, 0, -0.5);
 }
 
-/** 木：幹と、重ねた円錐の葉 */
-function treeGeometry() {
-  const trunk = paint(new THREE.CylinderGeometry(0.12, 0.18, 1.6, 6).translate(0, 0.8, 0), 0x5a4030);
-  const l1 = paint(new THREE.ConeGeometry(1.5, 2.6, 7).translate(0, 2.6, 0), 0x2f5a2a);
-  const l2 = paint(new THREE.ConeGeometry(1.1, 2.2, 7).translate(0, 3.8, 0), 0x386a30);
-  const l3 = paint(new THREE.ConeGeometry(0.7, 1.6, 7).translate(0, 4.9, 0), 0x427737);
-  return mergeGeometries([trunk, l1, l2, l3])!;
-}
-
-/** 観客席：段々の席と屋根 */
-function standGeometry(length: number) {
+/** 観客席：段々の席と屋根。席はテーマの 3 色、躯体はテーマの地の色 */
+function standGeometry(length: number, t: CourseTheme) {
   const parts: THREE.BufferGeometry[] = [];
+  const base = new THREE.Color(t.structure);
+  const step = (k: number) => base.clone().multiplyScalar(k).getHex();
   for (let i = 0; i < 8; i++) {
-    parts.push(paint(new THREE.BoxGeometry(length, 0.5 + i * 0.6, 1.1).translate(0, (0.5 + i * 0.6) / 2, 1.1 * i + 0.55), i % 2 ? 0x8f949c : 0x7a8088));
+    parts.push(paint(new THREE.BoxGeometry(length, 0.5 + i * 0.6, 1.1).translate(0, (0.5 + i * 0.6) / 2, 1.1 * i + 0.55), step(i % 2 ? 0.72 : 0.64)));
   }
-  // 観客（色のついた点の代わりに細い帯）
-  const colors = [0xd94c4c, 0x3b6fd1, 0xf0c419, 0xe8e8e8, 0x2fa35a];
+  // 観客（色のついた点の代わりに細い帯）。席の 3 色を、ところどころ空席の地の色で区切る
+  const colors = [t.seats[0], t.seats[1], t.seats[0], t.seats[2], step(0.8)];
   for (let i = 0; i < 8; i++) {
     for (let k = 0; k < 6; k++) {
       const x = -length / 2 + (k + 0.5) * (length / 6);
-      parts.push(paint(new THREE.BoxGeometry(length / 6 - 1, 0.35, 0.35).translate(x, 0.5 + i * 0.6 + 0.17, 1.1 * i + 0.35), colors[(i + k) % 5]));
+      parts.push(paint(new THREE.BoxGeometry(length / 6 - 1, 0.35, 0.35).translate(x, 0.5 + i * 0.6 + 0.17, 1.1 * i + 0.35), colors[(i * 2 + k) % colors.length]));
     }
   }
-  parts.push(paint(new THREE.BoxGeometry(length + 2, 0.25, 10).translate(0, 7.5, 4.2), 0xd8dade));
-  for (let k = 0; k <= 4; k++) parts.push(paint(new THREE.BoxGeometry(0.3, 7.5, 0.3).translate(-length / 2 + (k * length) / 4, 3.75, 8.9), 0x9aa0a8));
+  parts.push(paint(new THREE.BoxGeometry(length + 2, 0.25, 10).translate(0, 7.5, 4.2), step(1)));
+  // 屋根の前の縁に差し色
+  parts.push(paint(new THREE.BoxGeometry(length + 2.1, 0.5, 0.18).translate(0, 7.45, -0.8), t.accent));
+  for (let k = 0; k <= 4; k++) parts.push(paint(new THREE.BoxGeometry(0.3, 7.5, 0.3).translate(-length / 2 + (k * length) / 4, 3.75, 8.9), step(0.7)));
   return mergeGeometries(parts.map((p) => (p.index ? p.toNonIndexed() : p)))!;
 }
 
-/** ピットの建物：横に長い 2 階建てとガレージの開口 */
-function pitGeometry(length: number) {
+/** ピットの建物：横に長い 2 階建てとガレージの開口。帯は差し色 */
+function pitGeometry(length: number, t: CourseTheme) {
   const parts: THREE.BufferGeometry[] = [];
-  parts.push(paint(new THREE.BoxGeometry(length, 6, 12).translate(0, 3, -6), 0xb9bdc4));
-  parts.push(paint(new THREE.BoxGeometry(length, 0.8, 0.3).translate(0, 4.2, 0.1), 0x2a6fd6));
+  parts.push(paint(new THREE.BoxGeometry(length, 6, 12).translate(0, 3, -6), t.structure));
+  parts.push(paint(new THREE.BoxGeometry(length, 0.8, 0.3).translate(0, 4.2, 0.1), t.accent));
   for (let k = 0; k < 10; k++) {
     const x = -length / 2 + (k + 0.5) * (length / 10);
     parts.push(paint(new THREE.BoxGeometry(length / 10 - 1.5, 3.2, 0.2).translate(x, 1.6, 0.05), 0x2a2d33));
@@ -99,13 +99,20 @@ function pitGeometry(length: number) {
   return mergeGeometries(parts.map((p) => (p.index ? p.toNonIndexed() : p)))!;
 }
 
+/** 0〜1 の決まった乱数 */
+function hash01(i: number) {
+  const x = Math.sin(i * 12.9898 + 78.233) * 43758.5453;
+  return x - Math.floor(x);
+}
+
 export class CourseMesh {
   readonly group = new THREE.Group();
   private readonly cones: THREE.InstancedMesh | null = null;
   private readonly tires: THREE.InstancedMesh | null = null;
   private readonly disposables: { dispose(): void }[] = [];
 
-  constructor(readonly c: CourseData, readonly pw: PhysicsWorld) {
+  /** theme はコースの色のテーマ（植生、木の種類、建物の色） */
+  constructor(readonly c: CourseData, readonly pw: PhysicsWorld, theme: CourseTheme = DEFAULT_THEME) {
     const track = <T extends { dispose(): void }>(x: T) => { this.disposables.push(x); return x; };
     const vcol = track(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 }));
 
@@ -113,8 +120,26 @@ export class CourseMesh {
     {
       const g = track(new THREE.BufferGeometry());
       g.setAttribute('position', new THREE.BufferAttribute(c.terrain.vertices, 3));
-      g.setAttribute('color', new THREE.BufferAttribute(c.terrain.colors, 3));
+      // 頂点の色は sRGB の値で入っているので線形に直し、道から離れた所は遠景と同じ植生の色を混ぜる
       const n = c.terrain.vertices.length / 3;
+      const tc = new Float32Array(n * 3), cl = new THREE.Color(), nat = new THREE.Color(), pal = paletteOf(theme);
+      const { nx, cell } = c.terrain, V = c.terrain.vertices;
+      for (let i = 0; i < n; i++) {
+        cl.setRGB(c.terrain.colors[i * 3], c.terrain.colors[i * 3 + 1], c.terrain.colors[i * 3 + 2], THREE.SRGBColorSpace);
+        const w = c.terrain.nature[i];
+        if (w >= 0 && c.def.ground === 'grass') cl.lerp(nat.setHex(pal.meadow), 0.6);
+        if (w > 0) {
+          const ix = i % (nx + 1), l = i - 1, r = i + 1, u = i - (nx + 1), d = i + nx + 1;
+          const hy = (j: number) => (j >= 0 && j < n ? V[j * 3 + 1] : V[i * 3 + 1]);
+          const sx = ix > 0 && ix < nx ? Math.abs(hy(r) - hy(l)) / (2 * cell) : 0;
+          const slope = Math.max(sx, Math.abs(hy(d) - hy(u)) / (2 * cell));
+          natureColor(nat, V[i * 3], V[i * 3 + 2], slope, 0, V[i * 3 + 1] - c.seaY, pal);
+          cityMix(nat, V[i * 3], V[i * 3 + 2], slope, theme);
+          cl.lerp(nat, w);
+        }
+        tc[i * 3] = cl.r; tc[i * 3 + 1] = cl.g; tc[i * 3 + 2] = cl.b;
+      }
+      g.setAttribute('color', new THREE.BufferAttribute(tc, 3));
       const uv = new Float32Array(n * 2);
       for (let i = 0; i < n; i++) { uv[i * 2] = c.terrain.vertices[i * 3] / 6; uv[i * 2 + 1] = c.terrain.vertices[i * 3 + 2] / 6; }
       g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
@@ -158,6 +183,8 @@ export class CourseMesh {
       g.setIndex(new THREE.BufferAttribute(c.shoulder.indices, 1));
       g.computeVertexNormals();
       const col = new THREE.Color(SURFACES[c.shoulder.surface].color).multiplyScalar(0.92);
+      // 路肩の草もテーマの草の色へ寄せる
+      if (c.shoulder.surface === 'grass') col.lerp(new THREE.Color(paletteOf(theme).meadow), 0.55);
       const m = new THREE.Mesh(g, track(new THREE.MeshStandardMaterial({ color: col, roughness: 1 })));
       m.receiveShadow = true;
       this.group.add(m);
@@ -217,7 +244,7 @@ export class CourseMesh {
 
     // 壁（コンクリートの分離帯）
     if (c.walls.length > 0) {
-      const m = new THREE.InstancedMesh(track(barrierGeometry()), track(new THREE.MeshStandardMaterial({ color: 0xcfd0cc, roughness: 0.9 })), c.walls.length);
+      const m = new THREE.InstancedMesh(track(barrierGeometry()), track(new THREE.MeshStandardMaterial({ color: theme.wall, roughness: 0.9 })), c.walls.length);
       c.walls.forEach((w, i) => {
         q.setFromAxisAngle(Y, w.yaw);
         sc.set(1, 1, w.half[2] * 2);
@@ -228,20 +255,46 @@ export class CourseMesh {
       this.group.add(m);
     }
 
-    // 木
-    const treeCount = quality.level === 'low' ? Math.min(250, c.trees.length) : quality.level === 'medium' ? Math.min(700, c.trees.length) : c.trees.length;
-    if (treeCount > 0) {
-      const m = new THREE.InstancedMesh(track(treeGeometry()), vcol, treeCount);
-      for (let i = 0; i < treeCount; i++) {
-        const [x, y, z, s] = c.trees[i];
-        q.setFromAxisAngle(Y, (i * 2.39996) % (Math.PI * 2));
-        sc.set(s, s * (0.85 + ((i * 7) % 5) * 0.08), s);
-        ps.set(x, y - 0.1, z);
-        m.setMatrixAt(i, m4.compose(ps, q, sc));
+    // 木：テーマの種類の割合で、森の濃い所ほど多く植える。種類ごとに形の違う 3 本をインスタンスで並べ、向き、大きさ、色味をずらす
+    {
+      const limit = quality.level === 'low' ? 250 : quality.level === 'medium' ? 800 : 2000;
+      const kinds = (Object.entries(theme.trees) as [TreeKind, number][]).filter(([, w]) => w > 0);
+      const total = kinds.reduce((sum, [, w]) => sum + w, 0);
+      const buckets = new Map<string, number[]>();
+      let used = 0;
+      for (let i = 0; i < c.trees.length && used < limit && total > 0; i++) {
+        const [x, , z] = c.trees[i];
+        const sl = Math.hypot(c.heightAt(x + 4, z) - c.heightAt(x - 4, z), c.heightAt(x, z + 4) - c.heightAt(x, z - 4)) / 8;
+        if (hash01(i) > 0.2 + 0.8 * forestAmount(x, z, sl, 1)) continue;
+        let u = hash01(i * 7 + 3) * total, kind = kinds[0][0];
+        for (const [k, w] of kinds) { if (u < w) { kind = k; break; } u -= w; }
+        const key = `${kind}:${i % 3}`;
+        if (!buckets.has(key)) buckets.set(key, []);
+        buckets.get(key)!.push(i);
+        used++;
       }
-      m.castShadow = quality.level === 'high';
-      m.receiveShadow = true;
-      this.group.add(m);
+      const tint = new THREE.Color(theme.treeTint), tc = new THREE.Color();
+      for (const [kind] of kinds) {
+        const variants = treeVariants(kind);
+        const mat = track(new THREE.MeshLambertMaterial({ vertexColors: true, side: DOUBLE_SIDED[kind] ? THREE.DoubleSide : THREE.FrontSide }));
+        variants.forEach((g, v) => {
+          const ids = buckets.get(`${kind}:${v}`) ?? [];
+          if (ids.length === 0) { g.dispose(); return; }
+          const m = new THREE.InstancedMesh(track(g), mat, ids.length);
+          ids.forEach((i, j) => {
+            const [x, y, z, s0] = c.trees[i];
+            const k = 0.75 + (s0 - 0.7) * 0.5;
+            q.setFromAxisAngle(Y, hash01(i * 13) * Math.PI * 2);
+            sc.set(k, k * (0.9 + 0.2 * hash01(i * 19)), k);
+            ps.set(x, y - 0.15, z);
+            m.setMatrixAt(j, m4.compose(ps, q, sc));
+            m.setColorAt(j, tc.copy(tint).multiplyScalar(0.86 + 0.28 * hash01(i * 23)));
+          });
+          m.castShadow = quality.level === 'high';
+          m.receiveShadow = true;
+          this.group.add(m);
+        });
+      }
     }
 
     // 街の建物：壁と、階ごとに帯の窓。全部を 2 つの形にまとめて描く
@@ -252,7 +305,8 @@ export class CourseMesh {
         if (b.kind !== 'block') continue;
         const h = b.height ?? 12, d = b.depth ?? 14, l = b.length;
         m4.makeRotationY(b.yaw).setPosition(b.x, b.y, b.z);
-        walls.push(paint(new THREE.BoxGeometry(d, h, l).translate(0, h / 2, 0), b.color ?? 0xb8b0a4).applyMatrix4(m4));
+        const fac = theme.facades ? theme.facades[Math.floor(hash01(Math.round(b.x * 7 + b.z * 13)) * theme.facades.length)] : (b.color ?? 0xb8b0a4);
+        walls.push(paint(new THREE.BoxGeometry(d, h, l).translate(0, h / 2, 0), fac).applyMatrix4(m4));
         walls.push(paint(new THREE.BoxGeometry(d + 0.3, 0.6, l + 0.3).translate(0, h + 0.3, 0), 0x6d6f73).applyMatrix4(m4));
         const floors = Math.floor((h - 1.5) / 3.4);
         for (let k = 0; k < floors; k++) glass.push(new THREE.BoxGeometry(d + 0.08, 1.2, l + 0.08).translate(0, 2.3 + k * 3.4, 0).applyMatrix4(m4));
@@ -278,7 +332,7 @@ export class CourseMesh {
     // 観客席とピット
     for (const b of c.buildings) {
       if (b.kind === 'block') continue;
-      const g = track(b.kind === 'stand' ? standGeometry(b.length) : pitGeometry(b.length));
+      const g = track(b.kind === 'stand' ? standGeometry(b.length, theme) : pitGeometry(b.length, theme));
       const m = new THREE.Mesh(g, vcol);
       // 長さの向きを走る向きに。観客席は外向きに段が上がる
       m.rotation.y = b.yaw + Math.PI / 2;
@@ -286,21 +340,6 @@ export class CourseMesh {
       // 観客席は段が外へ上がるように、ピットはガレージの開口がコースを向くように回す
       m.rotateY(Math.PI);
       m.castShadow = true; m.receiveShadow = true;
-      this.group.add(m);
-    }
-
-    // 遠くの山
-    {
-      const { x0, z0, x1, z1 } = c.bounds;
-      const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
-      const R = Math.max(x1 - x0, z1 - z0) * 0.5 + 900;
-      const parts: THREE.BufferGeometry[] = [];
-      for (let k = 0; k < 28; k++) {
-        const a = (k / 28) * Math.PI * 2 + (k % 3) * 0.05;
-        const h = 120 + ((k * 53) % 7) * 45;
-        parts.push(paint(new THREE.ConeGeometry(h * 2.2, h, 5).translate(cx + Math.cos(a) * R, h / 2 - 20, cz + Math.sin(a) * R), k % 2 ? 0x5f7a66 : 0x6c8572));
-      }
-      const m = new THREE.Mesh(track(mergeGeometries(parts)!), track(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, flatShading: true })));
       this.group.add(m);
     }
 

@@ -1,5 +1,6 @@
 // 取り込んだ実在のサーキット（tools/fetch-tracks.ts が作った JSON）をコースの定義にする。
 import type { CourseCategory, CourseDef } from '../course';
+import { terrainAttribution } from './terrain-credit';
 import baku from './baku.json';
 import brandsHatch from './brands-hatch.json';
 import bristol from './bristol.json';
@@ -45,7 +46,7 @@ const ORDER: TrackJson[] = [
   indianapolis, daytona, talladega, charlotte, bristol,
 ] as TrackJson[];
 
-const TYPE_NAME: Record<string, string> = { international: '国際サーキット', technical: 'テクニカル', street: '市街地', oval: 'オーバル' };
+const TYPE_NAME: Record<string, string> = { international: 'Grand Prix', technical: 'Technical', street: 'Street', oval: 'Oval' };
 
 function toCourse(j: TrackJson): CourseDef {
   const pts: [number, number][] = [];
@@ -59,10 +60,10 @@ function toCourse(j: TrackJson): CourseDef {
   const rise = Math.max(...j.elev) - Math.min(...j.elev);
   return {
     id: j.id,
-    name: j.nameJa,
-    nameEn: j.name,
+    name: j.name,
+    nameEn: undefined,
     rise,
-    description: `${TYPE_NAME[j.type]}、${j.country}、1 周 ${(j.lengthOfficial / 1000).toFixed(3)} km、高低差 ${rise.toFixed(0)} m${j.banking ? `、バンク ${j.banking.turns}°` : ''}`,
+    description: `${TYPE_NAME[j.type]}, ${j.country}, ${(j.lengthOfficial / 1000).toFixed(3)} km lap, ${rise.toFixed(0)} m elevation change${j.banking ? `, ${j.banking.turns}° banking` : ''}`,
     category: j.type as CourseCategory,
     country: j.country,
     lengthOfficial: j.lengthOfficial,
@@ -80,7 +81,7 @@ function toCourse(j: TrackJson): CourseDef {
       auto: oval ? 'oval' : street ? 'street' : 'circuit',
     },
     laps: j.laps,
-    credit: `コースの形 © OpenStreetMap contributors（ODbL）、標高 ${j.source.elevation}、取得 ${j.source.retrieved}`,
+    credit: `Track shape © OpenStreetMap contributors (ODbL), elevation: ${j.source.elevation.replace('国土地理院 標高 API（地理院タイル DEM）', 'GSI Japan elevation API (GSI tiles DEM)')}, retrieved ${j.source.retrieved}. Scenery terrain: Terrain Tiles (${terrainAttribution(j.country).join('; ')})`,
   };
 }
 

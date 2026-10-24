@@ -151,7 +151,7 @@ export function buildSettingsForm(container: HTMLElement, p: CarParams, onChange
 /** 100 km/h と 200 km/h でのダウンフォース（½ρv²A(Cl前 + Cl後)） */
 function downforce(p: CarParams) {
   const f = (kmh: number) => 0.5 * 1.225 * (kmh / 3.6) ** 2 * p.aero.frontalArea * (p.aero.clFront + p.aero.clRear) / 9.81;
-  return `100 km/h で ${f(100).toFixed(0)} kgf、200 km/h で ${f(200).toFixed(0)} kgf（速さの 2 乗に比例）`;
+  return `100 km/h: ${f(100).toFixed(0)} kgf, 200 km/h: ${f(200).toFixed(0)} kgf (grows with the square of speed)`;
 }
 
 /** 入力値から出る目安と注意 */
@@ -160,15 +160,15 @@ export function renderDerived(el: HTMLElement, p: CarParams) {
   const ps = d.peakPowerKW * 1.3596;
   el.innerHTML = `
     <table class="derived">
-      <tr><th>最高出力</th><td>${d.peakPowerKW.toFixed(0)} kW（${ps.toFixed(0)} PS）／ ${d.peakPowerRpm.toFixed(0)} rpm</td></tr>
-      <tr><th>最大トルク</th><td>${d.peakTorque.toFixed(0)} N·m ／ ${d.peakTorqueRpm.toFixed(0)} rpm</td></tr>
-      <tr><th>出力重量比</th><td>${d.powerToWeight.toFixed(0)} kW/t</td></tr>
-      <tr><th>最高速の見込み</th><td>${d.topSpeedKmh.toFixed(0)} km/h</td></tr>
-      <tr><th>サスの固有振動数</th><td>前 ${d.freqFront.toFixed(2)} Hz、後 ${d.freqRear.toFixed(2)} Hz</td></tr>
-      <tr><th>静止時の沈み込み</th><td>前 ${(d.sagFront * 1000).toFixed(0)} mm、後 ${(d.sagRear * 1000).toFixed(0)} mm</td></tr>
-      <tr><th>ダウンフォース</th><td>${downforce(p)}</td></tr>
-      <tr><th>ハンドルの回転</th><td>端から端まで ${d.lockToLock.toFixed(1)} 回転</td></tr>
-      <tr><th>横転のしにくさ</th><td>${d.stabilityFactor.toFixed(2)}（トレッド ÷ 重心高の 2 倍。1.1 未満は横転しやすい）</td></tr>
+      <tr><th>Peak power</th><td>${d.peakPowerKW.toFixed(0)} kW (${ps.toFixed(0)} PS) / ${d.peakPowerRpm.toFixed(0)} rpm</td></tr>
+      <tr><th>Peak torque</th><td>${d.peakTorque.toFixed(0)} N·m / ${d.peakTorqueRpm.toFixed(0)} rpm</td></tr>
+      <tr><th>Power-to-weight</th><td>${d.powerToWeight.toFixed(0)} kW/t</td></tr>
+      <tr><th>Estimated top speed</th><td>${d.topSpeedKmh.toFixed(0)} km/h</td></tr>
+      <tr><th>Suspension natural frequency</th><td>Front ${d.freqFront.toFixed(2)} Hz, rear ${d.freqRear.toFixed(2)} Hz</td></tr>
+      <tr><th>Static sag</th><td>Front ${(d.sagFront * 1000).toFixed(0)} mm, rear ${(d.sagRear * 1000).toFixed(0)} mm</td></tr>
+      <tr><th>Downforce</th><td>${downforce(p)}</td></tr>
+      <tr><th>Steering wheel turns</th><td>${d.lockToLock.toFixed(1)} turns lock-to-lock</td></tr>
+      <tr><th>Rollover resistance</th><td>${d.stabilityFactor.toFixed(2)} (track width / (2 x CoG height). Below 1.1 rolls over easily)</td></tr>
     </table>
     ${d.warnings.length ? `<ul class="warnings">${d.warnings.map((w) => `<li>${w}</li>`).join('')}</ul>` : ''}
     <canvas class="torque-chart" width="560" height="120"></canvas>`;
@@ -198,7 +198,7 @@ export function renderDerived(el: HTMLElement, p: CarParams) {
   g.strokeStyle = 'rgba(255,80,80,0.8)';
   g.beginPath(); g.moveTo(x(p.engine.redlineRpm), 6); g.lineTo(x(p.engine.redlineRpm), H - pad); g.stroke();
   g.fillStyle = '#ccc'; g.font = '12px sans-serif';
-  g.fillText(`トルク（最大 ${tmax.toFixed(0)} N·m）`, pad + 8, 18);
-  g.fillStyle = '#ffb347'; g.fillText(`出力（最大 ${pmax.toFixed(0)} kW）`, pad + 8, 34);
+  g.fillText(`Torque (max ${tmax.toFixed(0)} N·m)`, pad + 8, 18);
+  g.fillStyle = '#ffb347'; g.fillText(`Power (max ${pmax.toFixed(0)} kW)`, pad + 8, 34);
   g.fillStyle = '#999'; g.fillText(`${Math.round(rmax / 1000)}000 rpm`, W - 70, H - 10);
 }

@@ -102,13 +102,13 @@ export function drawTraces(cv: HTMLCanvasElement, best: LapTrace | null, last: L
   g.fillStyle = '#9aa4b2'; g.fillText(String(vmax), 4, ys + 28);
   // アクセルとブレーキ（いちばん新しい周）
   const yt = ys + hs + 8, ht = H * 0.18;
-  band(yt, ht, '踏み');
+  band(yt, ht, 'Pedals');
   const t = last ?? best!;
   line(t, (i) => t.throttle[i], yt, ht, '#3fd06a', 1);
   line(t, (i) => t.brake[i], yt, ht, '#ff5a5a', 1);
   // 差（いちばん新しい周 − 最速の周）
   const yd = yt + ht + 8, hd = H - yd - 8;
-  band(yd, hd, '差 s');
+  band(yd, hd, 'Gap s');
   if (best && last && last !== best) {
     let dmax = 0.5;
     const d = (i: number) => last.time[i] - best.time[i];

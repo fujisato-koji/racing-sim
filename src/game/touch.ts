@@ -33,18 +33,18 @@ export class TouchControls {
     this.root.className = 'touch-ui';
     this.root.innerHTML = `
       <div class="touch-buttons">
-        <button data-a="pause" aria-label="一時停止">Ⅱ</button>
-        <button data-a="camera">視点</button>
-        <button data-a="reset">戻す</button>
-        <button data-a="center">中央</button>
-        <button data-a="sound" class="sound">音</button>
+        <button data-a="pause" aria-label="Pause">Ⅱ</button>
+        <button data-a="camera">Cam</button>
+        <button data-a="reset">Reset</button>
+        <button data-a="center">Center</button>
+        <button data-a="sound" class="sound" aria-label="Sound">♪</button>
       </div>
       <div class="shift-buttons">
-        <button data-a="shiftUp" aria-label="シフトアップ">▲</button>
-        <button data-a="shiftDown" aria-label="シフトダウン">▼</button>
+        <button data-a="shiftUp" aria-label="Shift up">▲</button>
+        <button data-a="shiftDown" aria-label="Shift down">▼</button>
       </div>
-      <div class="pedal brake" data-p="brake"><span>ブレーキ</span></div>
-      <div class="pedal throttle" data-p="throttle"><span>アクセル</span></div>
+      <div class="pedal brake" data-p="brake"><span>Brake</span></div>
+      <div class="pedal throttle" data-p="throttle"><span>Gas</span></div>
       <div class="steer-buttons">
         <div class="pedal small" data-p="left"><span>◀</span></div>
         <div class="pedal small" data-p="right"><span>▶</span></div>

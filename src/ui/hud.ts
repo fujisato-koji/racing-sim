@@ -42,8 +42,8 @@ export class Hud {
       <div class="hud-message"></div>
       <div class="hud-notice" style="display:none"></div>
       <div class="hud-help">${isTouch
-        ? 'スマホを左右に回してハンドル　右下アクセル　左下ブレーキ（止まって押し続けると後退）'
-        : '← → ハンドル　↑ アクセル　↓ ブレーキ（止まって押し続けると後退）　E/Q 手動変速<br>C 視点　M ミラー　N 地図　R 戻す　V 音　Esc 一時停止'}</div>
+        ? 'Tilt the phone to steer&emsp;Right pedal: throttle&emsp;Left pedal: brake (hold when stopped to reverse)'
+        : '<b>← →</b> steer&emsp;<b>↑</b> throttle&emsp;<b>↓</b> brake (hold when stopped to reverse)&emsp;<b>E/Q</b> shift<br><b>C</b> camera&emsp;<b>M</b> mirror&emsp;<b>N</b> map&emsp;<b>R</b> reset&emsp;<b>V</b> sound&emsp;<b>Esc</b> pause'}</div>
       <div class="hud-wheel"><svg viewBox="-50 -50 100 100">
         <circle r="44" fill="none" stroke="#e8ecf2" stroke-width="7"/>
         <circle r="10" fill="#e8ecf2"/>
@@ -115,7 +115,7 @@ export class Hud {
     }
     this.mapBase = base;
     // 実在のコースは OpenStreetMap の出典を出す（ODbL）
-    (this.root.querySelector('.hud-credit') as HTMLElement).textContent = c.def.credit ? '© OpenStreetMap contributors' : '';
+    (this.root.querySelector('.hud-credit') as HTMLElement).textContent = c.def.credit ? '© OpenStreetMap contributors / Terrain: Terrain Tiles (USGS and others)' : '';
     this.help.style.opacity = '1';
     this.helpTime = 0;
   }
@@ -133,7 +133,7 @@ export class Hud {
     this.meter.style.display = cockpit ? 'none' : '';
     if (!cockpit) this.gauges.draw(v);
     const w = v.wheels.find((x) => x.contact);
-    this.surface.textContent = v.airborne ? '空中' : (w ? SURFACES[w.surface.id].name : '');
+    this.surface.textContent = v.airborne ? 'Airborne' : (w ? SURFACES[w.surface.id].name : '');
 
     const race = s.race;
     const a = s.attack;
@@ -143,31 +143,32 @@ export class Hud {
       const dHtml = isFinite(d) && race.state === 'running'
         ? `<div class="hud-delta ${d > 0 ? 'slow' : 'fast'}">${d > 0 ? '+' : '−'}${Math.abs(d).toFixed(2)}</div>` : '';
       this.info.innerHTML = `
-        <div class="hud-title">タイムアタック</div>
-        <div>周回 ${pr.laps + 1}</div>
-        <div>今の周 ${formatTime(cur)}${a.invalid ? ' <span class="hud-invalid">記録なし</span>' : ''}</div>
+        <div class="hud-title">Time attack</div>
+        <div>Lap ${pr.laps + 1}</div>
+        <div>Current ${formatTime(cur)}${a.invalid ? ' <span class="hud-invalid">No time</span>' : ''}</div>
         ${dHtml}
-        <div>前の周 ${formatTime(pr.lastLap)}</div>
-        <div>最速 ${formatTime(a.best?.time ?? NaN)}</div>`;
+        <div>Last ${formatTime(pr.lastLap)}</div>
+        <div>Best ${formatTime(a.best?.time ?? NaN)}</div>`;
     } else if (race.free) {
-      this.info.innerHTML = `<div class="hud-title">${s.course.def.name}</div><div>自由走行</div>`;
+      this.info.innerHTML = `<div class="hud-title">${s.course.def.name}</div><div>Free drive</div>`;
     } else {
       const st = race.standings();
       const pos = st.indexOf(pr) + 1;
       const lapNow = Math.min(race.laps, pr.laps + 1);
       const cur = race.state === 'countdown' ? 0 : race.time - pr.lapStart;
       this.info.innerHTML = `
-        <div class="hud-big">${pos}<span>/${st.length} 位</span></div>
-        <div>周回 ${lapNow}/${race.laps}</div>
-        <div>今の周 ${formatTime(pr.finished ? pr.lastLap : cur)}</div>
-        <div>前の周 ${formatTime(pr.lastLap)}</div>
-        <div>最速 ${formatTime(pr.bestLap)}</div>`;
+        <div class="hud-label">POS</div>
+        <div class="hud-big">${pos}<span> / ${st.length}</span></div>
+        <div>Lap ${lapNow}/${race.laps}</div>
+        <div>Current ${formatTime(pr.finished ? pr.lastLap : cur)}</div>
+        <div>Last ${formatTime(pr.lastLap)}</div>
+        <div>Best ${formatTime(pr.bestLap)}</div>`;
     }
     let msg = '';
     if (race.state === 'countdown') msg = race.time < -0.5 ? String(Math.ceil(-race.time - 0.5)) : '';
     else if (race.time < 1.2 && !race.free) msg = 'GO!';
-    if (race.state === 'finished') msg = 'ゴール！';
-    if (s.paused) msg = '一時停止';
+    if (race.state === 'finished') msg = 'Finish!';
+    if (s.paused) msg = 'Paused';
     this.message.textContent = msg;
     const n = s.notice && s.notice.until > s.pw.time ? s.notice.text : '';
     this.notice.textContent = n;

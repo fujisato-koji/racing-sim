@@ -12,8 +12,8 @@ const tireLine = Array.from({ length: 54 }, (_, i) => ({ x: 100, z: -20 + i * 0.
 const ORIGINAL: CourseDef[] = [
   {
     id: 'testfield',
-    name: '試験場',
-    description: '舗装の広場にジャンプ台（10°、15°、20°）、砂利、砂地、岩場、コーン、タイヤの壁、コンクリートの壁。周回は無く自由に走る。',
+    name: 'Proving Ground',
+    description: 'A paved plaza with jump ramps (10, 15 and 20 degrees), gravel, sand, rocks, cones, a tire wall and a concrete wall. No laps, drive freely.',
     ground: 'grass',
     cell: 2.5,
     size: 480,
@@ -37,8 +37,8 @@ const ORIGINAL: CourseDef[] = [
   },
   {
     id: 'circuit',
-    name: '舗装サーキット',
-    description: '約 1.9 km の舗装路。長い直線の途中の頂点で少し飛び、その先にヘアピンとシケイン。外側にタイヤバリア。',
+    name: 'Tarmac Circuit',
+    description: 'About 1.9 km of tarmac. A small jump over a crest on the long straight, then a hairpin and a chicane. Tire barriers on the outside.',
     ground: 'grass',
     cell: 2.5,
     hills: { amp: 5, wave: 220 },
@@ -63,8 +63,8 @@ const ORIGINAL: CourseDef[] = [
   },
   {
     id: 'rally',
-    name: 'ラリー（未舗装）',
-    description: '約 2.1 km の砂利道。丘を越え、砂地の区間と岩場を抜け、二つのジャンプで飛ぶ。',
+    name: 'Rally (gravel)',
+    description: 'About 2.1 km of gravel road. Over hills, through sand sections and rocky areas, with two jumps.',
     ground: 'grass',
     cell: 3,
     hills: { amp: 9, wave: 150 },

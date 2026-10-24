@@ -17,6 +17,9 @@ import { CAR_PRESETS } from './sim/presets';
 import { Hud, formatTime } from './ui/hud';
 import { initLayout, isTouch, requestLandscape, viewSize } from './ui/layout';
 import type { Globe } from './render/globe';
+import { loadScenery } from './render/scenery';
+import { themeOf } from './render/themes';
+import { polarSampler } from './sim/terrain-sampler';
 import type { QualityPref } from './render/quality';
 import { quality } from './render/quality';
 import { buildSettingsForm, renderDerived } from './ui/settings';
@@ -24,7 +27,7 @@ import { exportCar, importCar, loadCustomCars, saveCustomCars } from './ui/stora
 
 /** 種類ごとの色（地球儀の柱、一覧の点、説明のカード） */
 const CAT_COLOR: Record<CourseCategory, string> = { original: '#e8ecf2', international: '#ffb000', technical: '#3fd06a', street: '#ff4fa3', oval: '#3fc3ff' };
-const CAT_NAME: Record<CourseCategory, string> = { original: 'オリジナル', international: '国際サーキット', technical: 'テクニカル', street: '市街地', oval: 'オーバル' };
+const CAT_NAME: Record<CourseCategory, string> = { original: 'Original', international: 'Grand Prix', technical: 'Technical', street: 'Street', oval: 'Oval' };
 
 /** コースの形の小さな図（制御点を結ぶ） */
 function drawThumb(cv: HTMLCanvasElement, c: CourseDef, color = '#e8ecf2') {
@@ -160,12 +163,12 @@ class App {
   private showTitle() {
     const el = this.screen(`
       <h1>racing-sim</h1>
-      <p class="lead">タイヤの摩擦、サスペンション、エンジンから車輪までの駆動系、空気抵抗を計算して走る車のレース。</p>
+      <p class="lead">A racing game where tire friction, suspension, the drivetrain from engine to wheels, and aerodynamics are all simulated.</p>
       ${this.prefsHtml()}
-      <div class="buttons"><button class="primary" data-go>はじめる</button></div>
+      <div class="buttons"><button class="primary" data-go>Start</button></div>
       <p class="note">${isTouch
-        ? 'スマホは横向きに持ち、ハンドルのように左右へ回して切る。右下がアクセル、左下がブレーキ。変速は自動。'
-        : '操作はキーボードかゲームパッド。← → ハンドル、↑ アクセル、↓ ブレーキ。手動変速は E で上げ Q で下げる。'}</p>`);
+        ? 'Hold the phone in landscape and tilt it like a steering wheel. Right pedal is throttle, left pedal is brake. Shifting is automatic.'
+        : 'Play with a keyboard or gamepad. ← → steer, ↑ throttle, ↓ brake. In manual mode, E shifts up and Q shifts down.'}</p>`);
     this.bindPrefs(el);
     this.on(el, '[data-go]', () => {
       // 音、傾きセンサー、全画面と横向きの固定は、利用者のタップの中でしか始められない
@@ -187,12 +190,12 @@ class App {
     this.courseTab = this.course.category ?? 'original';
     const tabs: [CourseCategory, string][] = (['original', 'international', 'technical', 'street', 'oval'] as CourseCategory[]).map((k) => [k, CAT_NAME[k]]);
     const el = this.screen(`
-      <h2>1. コースを選ぶ</h2>
+      <h2>1. Choose a track</h2>
       <div class="tabs">${tabs.map(([k, n]) => `<button class="tab ${k === this.courseTab ? 'selected' : ''}" data-tab="${k}"><span class="dot" style="background:${CAT_COLOR[k]}"></span>${n}</button>`).join('')}</div>
       <div class="course-list"></div>
       <p class="note credit"></p>
       <div class="race-options"></div>
-      <div class="buttons"><button data-back>戻る</button><button class="primary" data-next>次へ（車を選ぶ）</button></div>`, 'panel course-panel');
+      <div class="buttons"><button data-back>Back</button><button class="primary" data-next>Next: choose a car</button></div>`, 'panel course-panel');
     this.coursePanel = el;
     const list = el.querySelector('.course-list') as HTMLElement;
     const credit = el.querySelector('.credit') as HTMLElement;
@@ -211,18 +214,18 @@ class App {
 
     const renderOpts = () => {
       credit.textContent = this.course.credit ?? '';
-      if (!this.course.track) { opts.innerHTML = '<p class="note">自由走行（周回と対戦相手はなし）</p>'; return; }
+      if (!this.course.track) { opts.innerHTML = '<p class="note">Free drive (no laps or opponents)</p>'; return; }
       const attack = this.mode === 'attack';
       opts.innerHTML = `
-        <label class="field"><span class="field-name">走り方</span><select data-mode>
-          <option value="race" ${attack ? '' : 'selected'}>AI とレース</option>
-          <option value="attack" ${attack ? 'selected' : ''}>タイムアタック</option></select></label>
-        ${attack ? '<p class="note">1 台で、やめるまで周回します。コースに戻した周は記録にしません。最速の周はこのブラウザに残り、次から半透明の車として一緒に走ります。</p>' : `
-        <label class="field"><span class="field-name">周回数</span><input type="number" min="1" max="20" value="${this.laps}" data-laps></label>
-        <label class="field"><span class="field-name">対戦相手の数</span><input type="number" min="0" max="7" value="${this.opponents}" data-opp></label>
-        <label class="field"><span class="field-name">対戦相手の車</span><select data-same>
-          <option value="mixed" ${this.sameCar ? '' : 'selected'}>いろいろな車種</option>
-          <option value="same" ${this.sameCar ? 'selected' : ''}>自分と同じ車</option></select></label>`}`;
+        <label class="field"><span class="field-name">Mode</span><select data-mode>
+          <option value="race" ${attack ? '' : 'selected'}>Race vs AI</option>
+          <option value="attack" ${attack ? 'selected' : ''}>Time attack</option></select></label>
+        ${attack ? '<p class="note">Drive solo and keep lapping until you stop. Laps where you were reset to the track do not count. Your best lap is kept in this browser and runs alongside you next time as a translucent ghost car.</p>' : `
+        <label class="field"><span class="field-name">Laps</span><input type="number" min="1" max="20" value="${this.laps}" data-laps></label>
+        <label class="field"><span class="field-name">Opponents</span><input type="number" min="0" max="7" value="${this.opponents}" data-opp></label>
+        <label class="field"><span class="field-name">Opponent cars</span><select data-same>
+          <option value="mixed" ${this.sameCar ? '' : 'selected'}>Mixed</option>
+          <option value="same" ${this.sameCar ? 'selected' : ''}>Same as mine</option></select></label>`}`;
       (opts.querySelector('[data-mode]') as HTMLSelectElement).onchange = (e) => { this.mode = (e.target as HTMLSelectElement).value as 'race' | 'attack'; renderOpts(); };
       if (attack) return;
       (opts.querySelector('[data-laps]') as HTMLInputElement).oninput = (e) => { this.laps = Math.max(1, Math.min(20, Number((e.target as HTMLInputElement).value) || 1)); };
@@ -232,18 +235,19 @@ class App {
     const renderCard = () => {
       const c = this.course, pl = PLACES[c.id], cat = c.category ?? 'original', color = CAT_COLOR[cat];
       const stats = pl && c.lengthOfficial ? `<div class="gc-stats">
-          <div><b>${(c.lengthOfficial / 1000).toFixed(3)}</b><small>km（1 周）</small></div>
-          <div><b>${(c.rise ?? 0).toFixed(0)}</b><small>m（高低差）</small></div>
-          <div><b>${pl.opened}</b><small>年（開場）</small></div></div>` : '';
+          <div><b>${(c.lengthOfficial / 1000).toFixed(3)}</b><small>km lap</small></div>
+          <div><b>${(c.rise ?? 0).toFixed(0)}</b><small>m elevation</small></div>
+          <div><b>${pl.opened}</b><small>opened</small></div></div>` : '';
       const card = this.card!;
       card.innerHTML = `
         <div class="gc-cat" style="color:${color}">${CAT_NAME[cat]}</div>
         <div class="gc-name">${c.name}${c.nameEn ? `<span>${c.nameEn}</span>` : ''}</div>
-        <div class="gc-place">${pl ? pl.place : 'このゲームのために作ったコース'}</div>
+        <div class="gc-place">${pl ? pl.place : 'Original track made for this game'}</div>
+        <div class="gc-mood">${themeOf(c.id).mood}</div>
         <canvas width="440" height="220" data-card-thumb></canvas>
         ${stats}
         <p class="gc-blurb">${pl ? pl.blurb : c.description}</p>
-        <button class="primary" data-card-next>このコースで次へ</button>`;
+        <button class="primary" data-card-next>Choose this track</button>`;
       drawThumb(card.querySelector('[data-card-thumb]') as HTMLCanvasElement, c, color);
       (card.querySelector('[data-card-next]') as HTMLElement).onclick = () => this.showCarSelect();
       card.classList.remove('pop');
@@ -325,27 +329,27 @@ class App {
   private showCarSelect() {
     const all = [...CAR_PRESETS.map((p) => ({ p, custom: false })), ...this.custom.map((p) => ({ p, custom: true }))];
     const el = this.screen(`
-      <h2>2. 車を選ぶ</h2>
+      <h2>2. Choose a car</h2>
       <div class="car-list">${all.map(({ p, custom }, i) => `
         <button class="car-item ${p.id === this.car.id && p.name === this.car.name ? 'selected' : ''}" data-car="${i}">
-          <span class="swatch" style="background:${p.color}"></span>${p.name}${custom ? '<span class="tag">自作</span>' : ''}
+          <span class="swatch" style="background:${p.color}"></span>${p.name}${custom ? '<span class="tag">Custom</span>' : ''}
         </button>`).join('')}</div>
       <div class="car-summary"></div>
       <div class="buttons">
-        <button data-back>戻る</button>
-        <button data-import>読み込む（JSON）</button>
-        <button data-detail>細かく設定する</button>
-        <button class="primary" data-go>このまま走る</button>
+        <button data-back>Back</button>
+        <button data-import>Import (JSON)</button>
+        <button data-detail>Tune</button>
+        <button class="primary" data-go>Race now</button>
       </div>`, 'panel narrow');
     const sum = el.querySelector('.car-summary') as HTMLElement;
     const renderSum = () => {
       const d = computeDerived(this.car);
       sum.innerHTML = `<table class="derived">
-        <tr><th>駆動</th><td>${this.car.drive.layout}（エンジン${this.car.engine.orientation === 'longitudinal' ? '縦置き' : '横置き'}）</td></tr>
-        <tr><th>質量</th><td>${this.car.body.mass} kg（前 ${(this.car.body.weightFront * 100).toFixed(0)}%）</td></tr>
-        <tr><th>最高出力</th><td>${d.peakPowerKW.toFixed(0)} kW（${(d.peakPowerKW * 1.3596).toFixed(0)} PS）</td></tr>
-        <tr><th>最高速の見込み</th><td>${d.topSpeedKmh.toFixed(0)} km/h</td></tr>
-        <tr><th>変速機</th><td>${this.car.gearbox.ratios.length} 段の自動</td></tr></table>`;
+        <tr><th>Drive</th><td>${this.car.drive.layout}(${this.car.engine.orientation === 'longitudinal' ? 'longitudinal' : 'transverse'} engine)</td></tr>
+        <tr><th>Mass</th><td>${this.car.body.mass} kg(${(this.car.body.weightFront * 100).toFixed(0)}% front)</td></tr>
+        <tr><th>Peak power</th><td>${d.peakPowerKW.toFixed(0)} kW (${(d.peakPowerKW * 1.3596).toFixed(0)} PS)</td></tr>
+        <tr><th>Est. top speed</th><td>${d.topSpeedKmh.toFixed(0)} km/h</td></tr>
+        <tr><th>Gearbox</th><td>${this.car.gearbox.ratios.length}-speed automatic</td></tr></table>`;
     };
     renderSum();
     this.on(el, '[data-car]', (b) => {
@@ -372,16 +376,16 @@ class App {
   // ------------------------------------------------------------ 詳細設定
   private showSettings() {
     const el = this.screen(`
-      <h2>3. 細かく設定する <span class="sub">${this.car.name}</span></h2>
+      <h2>3. Tuning <span class="sub">${this.car.name}</span></h2>
       <div class="settings">
         <div class="settings-side"><div class="derived-box"></div></div>
         <div class="settings-form"></div>
       </div>
       <div class="buttons">
-        <button data-back>戻る</button>
-        <button data-save>自作として保存</button>
-        <button data-export>書き出す（JSON）</button>
-        <button class="primary" data-go>この設定で走る</button>
+        <button data-back>Back</button>
+        <button data-save>Save as custom</button>
+        <button data-export>Export (JSON)</button>
+        <button class="primary" data-go>Race with these settings</button>
       </div>
       <p class="note status"></p>`, 'panel settings-panel');
     const form = el.querySelector('.settings-form') as HTMLElement;
@@ -405,18 +409,19 @@ class App {
       if (i >= 0) this.custom[i] = p;
       else {
         p.id = `custom-${Date.now()}`;
-        if (CAR_PRESETS.some((c) => c.name === p.name)) p.name = `${p.name}（改）`;
+        if (CAR_PRESETS.some((c) => c.name === p.name)) p.name = `${p.name} (edited)`;
         this.custom.push(p);
         this.car = cloneParams(p);
       }
-      status.textContent = saveCustomCars(this.custom) ? `「${p.name}」を保存しました（このブラウザの中だけ）` : 'このブラウザでは保存できません。書き出して残してください';
+      status.textContent = saveCustomCars(this.custom) ? `Saved "${p.name}" (in this browser only)` : 'This browser cannot save. Export it instead.';
     });
   }
 
   // ------------------------------------------------------------ レース
   private startRace() {
-    this.screen('<p class="loading">コースを作っています…</p>', 'panel center');
-    setTimeout(() => {
+    this.screen('<p class="loading">Building the track…</p>', 'panel center');
+    setTimeout(async () => {
+      const scenery = await loadScenery(this.course.id);
       const opponents: CarParams[] = [];
       if (this.course.track) {
         for (let i = 0; i < this.opponents; i++) {
@@ -428,7 +433,8 @@ class App {
       this.input.reset();
       this.touch.reset();
       this.session?.dispose();
-      this.session = new Session(RAPIER, { course: this.course, player: cloneParams(this.car), opponents, laps: this.laps, mode: this.course.track ? this.mode : 'race' },
+      this.session = new Session(RAPIER, { course: this.course, player: cloneParams(this.car), opponents, laps: this.laps, mode: this.course.track ? this.mode : 'race',
+        terrain: scenery ? polarSampler(scenery, themeOf(this.course.id).seaLevel ?? 0) : undefined },
         (dt, v) => {
           // キーボードとスマホのどちらでも。キーでハンドルを切っているときはキーを優先
           const k = this.input.update(dt, v.speed), t = this.touch.update(dt, v.speed), g = this.pad;
@@ -436,7 +442,7 @@ class App {
           return { steer, throttle: Math.max(k.throttle, t.throttle, g.throttle), brake: Math.max(k.brake, t.brake, g.brake) };
         });
       if (this.session.player) this.session.player.vehicle.manual = this.prefs.manual;
-      this.view.setSession(this.session);
+      this.view.setSession(this.session, scenery);
       this.hud.setCourse(this.session.course);
       this.hud.visible = true;
       this.touch.visible = isTouch;
@@ -456,16 +462,16 @@ class App {
     if (!s.paused) { this.overlay.style.display = 'none'; return; }
     const a = s.attack;
     const el = this.screen(`
-      <h2>一時停止</h2>
+      <h2>Paused</h2>
       ${a ? this.telemetryHtml() : ''}
       ${this.prefsHtml()}
-      ${a ? `<label class="field"><span class="field-name">ゴースト</span><input type="checkbox" ${this.view.showGhost ? 'checked' : ''} data-ghost><span></span></label>` : ''}
+      ${a ? `<label class="field"><span class="field-name">Ghost</span><input type="checkbox" ${this.view.showGhost ? 'checked' : ''} data-ghost><span></span></label>` : ''}
       <div class="buttons vertical">
-        <button class="primary" data-resume>続ける</button>
-        ${a ? '<button data-finish>終える（周のタイムを見る）</button>' : ''}
-        <button data-restart>最初からやり直す</button>
-        <button data-car>車を変える</button>
-        <button data-menu>コースを選び直す</button>
+        <button class="primary" data-resume>Resume</button>
+        ${a ? '<button data-finish>Finish (see lap times)</button>' : ''}
+        <button data-restart>Restart</button>
+        <button data-car>Change car</button>
+        <button data-menu>Change track</button>
       </div>`, 'panel center');
     this.bindPrefs(el);
     this.drawTelemetry(el);
@@ -480,12 +486,12 @@ class App {
 
   private prefsHtml() {
     return `<div class="prefs">
-      <label class="field"><span class="field-name">音量</span><input type="range" min="0" max="1" step="0.05" value="${this.prefs.volume}" data-volume><span class="field-unit"></span></label>
-      <label class="field"><span class="field-name">音を消す</span><input type="checkbox" ${this.prefs.muted ? 'checked' : ''} data-mute><span></span></label>
-      <label class="field"><span class="field-name">描画の質</span><select data-quality>${(['auto', 'low', 'medium', 'high'] as const).map((q) => `<option value="${q}" ${this.prefs.quality === q ? 'selected' : ''}>${{ auto: '自動（重ければ画素を減らす）', low: '低', medium: '中', high: '高' }[q]}</option>`).join('')}</select><span></span></label>
-      <label class="field"><span class="field-name">変速</span><select data-trans><option value="auto" ${this.prefs.manual ? '' : 'selected'}>自動</option><option value="manual" ${this.prefs.manual ? 'selected' : ''}>手動（E/Q、RB/LB、画面の ▲▼）</option></select><span></span></label>
-      ${isTouch ? `<label class="field"><span class="field-name">いっぱいに切る傾き</span><input type="range" min="15" max="90" step="5" value="${this.prefs.tiltRange}" data-tilt><span class="field-unit" data-tilt-text>${this.prefs.tiltRange}°</span></label>
-      <label class="field"><span class="field-name">中央付近の鈍さ（遊び）</span><input type="range" min="0" max="1" step="0.05" value="${this.prefs.centerSoft}" data-soft><span class="field-unit" data-soft-text>${Math.round(this.prefs.centerSoft * 100)}%</span></label>` : ''}
+      <label class="field"><span class="field-name">Volume</span><input type="range" min="0" max="1" step="0.05" value="${this.prefs.volume}" data-volume><span class="field-unit"></span></label>
+      <label class="field"><span class="field-name">Mute</span><input type="checkbox" ${this.prefs.muted ? 'checked' : ''} data-mute><span></span></label>
+      <label class="field"><span class="field-name">Graphics</span><select data-quality>${(['auto', 'low', 'medium', 'high'] as const).map((q) => `<option value="${q}" ${this.prefs.quality === q ? 'selected' : ''}>${{ auto: 'Auto (lowers resolution when slow)', low: 'Low', medium: 'Medium', high: 'High' }[q]}</option>`).join('')}</select><span></span></label>
+      <label class="field"><span class="field-name">Transmission</span><select data-trans><option value="auto" ${this.prefs.manual ? '' : 'selected'}>Automatic</option><option value="manual" ${this.prefs.manual ? 'selected' : ''}>Manual (E/Q, RB/LB, on-screen ▲▼)</option></select><span></span></label>
+      ${isTouch ? `<label class="field"><span class="field-name">Tilt for full lock</span><input type="range" min="15" max="90" step="5" value="${this.prefs.tiltRange}" data-tilt><span class="field-unit" data-tilt-text>${this.prefs.tiltRange}°</span></label>
+      <label class="field"><span class="field-name">Center deadzone</span><input type="range" min="0" max="1" step="0.05" value="${this.prefs.centerSoft}" data-soft><span class="field-unit" data-soft-text>${Math.round(this.prefs.centerSoft * 100)}%</span></label>` : ''}
     </div>`;
   }
 
@@ -547,9 +553,9 @@ class App {
   /** テレメトリの図（最速の周と、いちばん新しい周） */
   private telemetryHtml() {
     const a = this.session?.attack;
-    if (!a || (!a.bestTrace && !a.lastTrace)) return '<p class="note">1 周を走りきると、ここに速さ、アクセルとブレーキ、最速の周との差が出ます。</p>';
+    if (!a || (!a.bestTrace && !a.lastTrace)) return '<p class="note">Complete a lap and your speed, throttle, brake and gap to your best lap will show up here.</p>';
     return `<canvas class="telemetry" width="760" height="300" data-telemetry></canvas>
-      <p class="note"><span style="color:#5ab0ff">━</span> 最速の周　<span style="color:#ffb000">━</span> いちばん新しい周　<span style="color:#3fd06a">━</span> アクセル　<span style="color:#ff5a5a">━</span> ブレーキ　下の段は最速の周との差（上が遅れ）</p>`;
+      <p class="note"><span style="color:#5ab0ff">━</span> Best lap&emsp;<span style="color:#ffb000">━</span> Latest lap&emsp;<span style="color:#3fd06a">━</span> Throttle&emsp;<span style="color:#ff5a5a">━</span> Brake<br>Bottom row: gap to your best lap (higher means slower)</p>`;
   }
 
   private drawTelemetry(el: HTMLElement) {
@@ -563,13 +569,13 @@ class App {
     const a = s.attack!;
     this.resultsShown = true;
     s.paused = true;
-    const rows = a.laps.map((l, i) => `<tr class="${l.best ? 'me' : ''}"><td>${i + 1}</td><td>${formatTime(l.time)}</td><td>${l.best ? '最速を更新' : l.valid ? '' : '記録なし（コースに戻した）'}</td></tr>`).join('');
+    const rows = a.laps.map((l, i) => `<tr class="${l.best ? 'me' : ''}"><td>${i + 1}</td><td>${formatTime(l.time)}</td><td>${l.best ? 'New best' : l.valid ? '' : 'No time (reset)'}</td></tr>`).join('');
     const el = this.screen(`
-      <h2>タイムアタック <span class="sub">${s.course.def.name}、${s.player!.vehicle.p.name}</span></h2>
-      <p>このブラウザでの最速 <b>${formatTime(a.best?.time ?? NaN)}</b></p>
-      ${a.laps.length ? `<div class="laps-list"><table class="results"><tr><th>周</th><th>タイム</th><th></th></tr>${rows}</table></div>` : '<p class="note">走りきった周はありません。</p>'}
+      <h2>Time attack <span class="sub">${s.course.def.name}, ${s.player!.vehicle.p.name}</span></h2>
+      <p>Best in this browser <b>${formatTime(a.best?.time ?? NaN)}</b></p>
+      ${a.laps.length ? `<div class="laps-list"><table class="results"><tr><th>Lap</th><th>Time</th><th></th></tr>${rows}</table></div>` : '<p class="note">No completed laps.</p>'}
       ${this.telemetryHtml()}
-      <div class="buttons"><button data-menu>コースを選び直す</button><button data-car>車を変える</button><button class="primary" data-again>もう一度</button></div>`, 'panel center');
+      <div class="buttons"><button data-menu>Change track</button><button data-car>Change car</button><button class="primary" data-again>Race again</button></div>`, 'panel center');
     this.drawTelemetry(el);
     this.on(el, '[data-again]', () => this.startRace());
     this.on(el, '[data-car]', () => { this.endSession(); this.showCarSelect(); });
@@ -582,13 +588,13 @@ class App {
     this.resultsShown = true;
     const st = s.race.standings();
     const el = this.screen(`
-      <h2>結果 <span class="sub">${s.course.def.name}、${s.race.laps} 周</span></h2>
+      <h2>Results <span class="sub">${s.course.def.name}, ${s.race.laps} laps</span></h2>
       <table class="results">
-        <tr><th>順位</th><th>名前</th><th>車</th><th>タイム</th><th>最速の周</th></tr>
+        <tr><th>Pos</th><th>Name</th><th>Car</th><th>Time</th><th>Best lap</th></tr>
         ${st.map((r, i) => `<tr class="${r.isPlayer ? 'me' : ''}"><td>${i + 1}</td><td>${r.name}</td><td>${r.vehicle.p.name}</td>
-          <td>${r.finished ? formatTime(r.finishTime) : `${r.laps} 周`}</td><td>${formatTime(r.bestLap)}</td></tr>`).join('')}
+          <td>${r.finished ? formatTime(r.finishTime) : `${r.laps} laps`}</td><td>${formatTime(r.bestLap)}</td></tr>`).join('')}
       </table>
-      <div class="buttons"><button data-menu>コースを選び直す</button><button data-car>車を変える</button><button class="primary" data-again>もう一度</button></div>`, 'panel center');
+      <div class="buttons"><button data-menu>Change track</button><button data-car>Change car</button><button class="primary" data-again>Race again</button></div>`, 'panel center');
     this.on(el, '[data-again]', () => this.startRace());
     this.on(el, '[data-car]', () => { this.endSession(); this.showCarSelect(); });
     this.on(el, '[data-menu]', () => { this.endSession(); this.showCourse(); });
@@ -599,11 +605,11 @@ async function main() {
   initLayout();
   const stage = document.getElementById('stage')!;
   const overlay = document.getElementById('overlay') as HTMLDivElement;
-  overlay.innerHTML = '<div class="panel center"><p class="loading">読み込み中…</p></div>';
+  overlay.innerHTML = '<div class="panel center"><p class="loading">Loading…</p></div>';
   await RAPIER.init();
   new App(stage, overlay);
 }
 
 main().catch((e) => {
-  document.body.insertAdjacentHTML('beforeend', `<pre class="fatal">起動できませんでした: ${String(e)}</pre>`);
+  document.body.insertAdjacentHTML('beforeend', `<pre class="fatal">Could not start: ${String(e)}</pre>`);
 });

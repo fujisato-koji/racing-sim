@@ -5,6 +5,17 @@
 
 遊ぶ：<https://fujisato-koji.github.io/racing-sim/>
 
+## English
+
+racing-sim is a browser racing game built with three.js. Tire friction, suspension, the drivetrain from engine to wheels, and aerodynamics are all simulated. The game itself is in English.
+
+Play: <https://fujisato-koji.github.io/racing-sim/> (keyboard, gamepad, or a phone held in landscape and tilted to steer)
+
+- 20 real circuits in four groups (Grand Prix, Technical, Street, Oval) plus 3 original tracks, chosen on a 3D globe. Track shapes come from OpenStreetMap and the surrounding terrain from real elevation data. Each track has its own light, weather and colors.
+- Race against AI drivers, or run time attack laps against a ghost of your best lap with telemetry.
+- Six preset cars and full tuning of dimensions, suspension, tires, engine, gearbox, differentials, aerodynamics and driver aids.
+- Data credits: track shapes © OpenStreetMap contributors (ODbL 1.0); terrain from Terrain Tiles (3DEP, SRTM and GMTED2010 data courtesy of the U.S. Geological Survey; ETOPO1 from NOAA; EU-DEM produced using Copernicus data and information funded by the European Union; © Environment Agency copyright and/or database right 2015, all rights reserved; © Commonwealth of Australia (Geoscience Australia) 2017); globe land outlines from Natural Earth (public domain). Details are in the Japanese sections below.
+
 ## 操作（キーボード）
 
 | キー | 操作 |
@@ -85,7 +96,9 @@
 ## 見た目と描画
 
 - 車体は、諸元の寸法から横から見た形（ボンネット、前後の窓、屋根、トランク）、上から見た形、断面を決めて一枚の面にしています。車輪の上はフェンダーの切り欠き、窓まわりはガラスと柱（A、B、C ピラー）を塗り分けます。車体の型（軽、ハッチバック、セダン、クーペ、SUV、ミッドシップ）で形が変わります。
-- コースには、縁石（赤白。物理でも細かい段のある路面）、コンクリートの分離帯、白帯のコーン、タイヤバリア、木、観客席、ピット、遠くの山を置いています。
+- コースには、縁石（赤白。物理でも細かい段のある路面）、コンクリートの分離帯、白帯のコーン、タイヤバリア、木、観客席、ピットを置いています。まわり 30 km は遠景の地形（実在のコースは標高データ、作ったコースは雑音から作った山）で、遠くほど霞みます。
+- 木は針葉樹、広葉樹、笠松、ヤシ、糸杉の 5 種類で、種類ごとに形の違う 3 本を、向き、大きさ、色味をずらして並べます。斜面や丘の森の濃い所ほど多く植えます。
+- コースごとに色のテーマがあります。時刻と天気（太陽の高さと向き、光の色、霞）、草と森の色、木の種類、建物の外壁、差し色を 1 つの雰囲気にまとめています（例：鈴鹿は秋の午後、スパは曇りの森、モナコは地中海の昼、マリーナベイは夕暮れ）。定義は `src/render/themes.ts` です。
 - 空は上ほど濃い青で、太陽のまわりが明るく、同じ空を車の塗装やガラスに映しています。
 - 描画の質は 自動、低、中、高 から選べます（タイトルか一時停止の画面）。自動のときは、フレームの時間を見て描く画素の数を減らしたり戻したりします。
 
@@ -109,6 +122,13 @@
 - 市街地は壁の外に街の建物を置いています。建物の形と並びは作り物で、実際の街並みではありません。
 - コース幅は資料にあればその値、無ければ似たコースの値を仮に置いています。公式の長さ、向き、バンク角の出典は `tools/track-specs.md` にあります。
 - `src/sim/tracks/*.json` は OpenStreetMap から作ったデータなので、Open Database License (ODbL) 1.0 で公開します（`src/sim/tracks/README.md`）。取り込み直すときは `npx tsx tools/fetch-tracks.ts [id ...]` です。
+- 実在のコースのまわり 30 km の遠景の地形は、AWS の Terrain Tiles（https://registry.opendata.aws/terrain-tiles/ 、terrarium 形式、ズーム 11、2026-10-24 取得）から作りました。コースの中心から同心円の格子（半径 150 m から 30 km まで 64 段、角度 256 分割）の標高を `src/sim/scenery/*.json` に入れています。取り込み直すときは `npx tsx tools/fetch-scenery.ts [id ...]` です。Terrain Tiles の表示の決まり（https://github.com/tilezen/joerd/blob/master/docs/attribution.md ）に従い、使った地域に効く提供元を次のとおり表示します（ゲームの中ではコースを選ぶ画面の出典の行に出します）。
+  - 3DEP, SRTM and GMTED2010 data courtesy of the U.S. Geological Survey
+  - ETOPO1: U.S. National Oceanic and Atmospheric Administration
+  - Produced using Copernicus data and information funded by the European Union - EU-DEM layers（ベルギー、イタリア、オランダ、ハンガリー、モナコ、アゼルバイジャン、イギリス）
+  - © Environment Agency copyright and/or database right 2015. All rights reserved（イギリス）
+  - © Commonwealth of Australia (Geoscience Australia) 2017（オーストラリア）
+- 遠景の植生の色、市街地の建物、作ったコースの山は作り物です。市街地の建物は高さと並びを乱数で置いたもので、実際の街並みではありません。
 - コースを選ぶ画面の地球儀の陸の形は、Natural Earth の 1:110m の陸地（パブリックドメイン、https://github.com/nvkelso/natural-earth-vector の `geojson/ne_110m_land.geojson`、2026-10-24 取得）から作りました。作り直すときは `npx tsx tools/make-globe.ts <GeoJSON のパス>` です。各コースの所在地、開場の年、紹介文は `src/sim/tracks/places.ts` にあります。
 
 ## 開発
@@ -160,8 +180,7 @@ test/        検算と確認用の道具
 
 ## 今後の候補
 
-- エンジン音、タイヤの鳴き、衝突の音
-- ゲームパッド
-- 手動の変速
-- 車の損傷、横滑り防止（ESC）
+- 名前を入れて世界の記録と競う（Cloudflare Workers と D1）
+- 天気と時間帯を選ぶ（雨、夜）
+- 車の損傷
 - コースの追加と、コースを作る画面
