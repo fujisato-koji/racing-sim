@@ -153,9 +153,20 @@ class App {
     requestAnimationFrame((t) => this.frame(t));
   }
 
+  /** 続きのある一覧は、続く側の縁を薄くする（スクロールバーの代わり） */
+  private updateFades() {
+    if (this.overlay.style.display === 'none') return;
+    for (const el of this.overlay.querySelectorAll<HTMLElement>('.course-list, .car-list, .laps-list, .settings, .panel')) {
+      const more = el.scrollHeight - el.clientHeight > 2;
+      el.classList.toggle('fade-top', more && el.scrollTop > 2);
+      el.classList.toggle('fade-bottom', more && el.scrollTop + el.clientHeight < el.scrollHeight - 2);
+    }
+  }
+
   private frame(now: number) {
     const dt = Math.min(0.1, (now - this.last) / 1000);
     this.last = now;
+    this.updateFades();
     const s = this.session;
     this.pad.poll();
     if (s) {
