@@ -678,26 +678,51 @@ export function buildCourse(def: CourseDef, terrain?: TerrainSampler, real?: Rea
     }
   }
 
-  // 観客席とピット：スタートラインの前後の直線の外
+  // 観客席とピット：スタートラインの前後の直線の外。
+  // 描く形の足元（観客席は道の側へ屋根が 0.8 m、奥へ 9.3 m、ピットはガレージの面から奥へ 12 m）が、どの区間の道と路肩にもかからない所だけに置く。
+  // 自分の直線も含めて調べる（直線の終わりで道が建物の側へ曲がり込むことがある）。かかるときは反対側、前後にずらす、短くするの順で試す
   const buildings: CourseData['buildings'] = [];
-  if (t) {
-    const p0 = path[0];
-    const yaw = yawFromDir(p0.tx, p0.tz);
-    const off = width / 2 + SHOULDER + 9;
+  if (t && index) {
+    const step = length / n;
+    const at = (i: number) => path[((i % n) + n) % n];
+    const clear = width / 2 + SHOULDER + 1;
+    /** near は道の中心から建物の手前の縁までの距離、far は奥の縁まで */
+    const fits = (q0: PathSample, side: number, near: number, far: number, len: number) => {
+      for (let a = -len / 2 - 1; a <= len / 2 + 1.01; a += 2.5) {
+        for (let d = near; d <= far + 0.01; d += 2) {
+          const x = q0.x + q0.tx * a + q0.lx * d * side, z = q0.z + q0.tz * a + q0.lz * d * side;
+          if (x < x0 + 5 || x > x1 - 5 || z < z0 + 5 || z > z1 - 5) return false;
+          if (index.branches(x, z, clear).length > 0) return false;
+        }
+      }
+      return true;
+    };
+    const place = (kind: 'stand' | 'pit', side: number, near: number, len: number, shift: number, yawAdd: number) => {
+      const q = at(Math.round(shift / step));
+      // ピットはガレージの面が道を向き、奥へ 12 m
+      const [d, far] = kind === 'stand' ? [near + 0.8, near + 10.1] : [near, near + 12];
+      if (!fits(q, side, near, far, len)) return false;
+      buildings.push({ kind, x: q.x + q.lx * d * side, y: q.y, z: q.z + q.lz * d * side, yaw: yawFromDir(q.tx, q.tz) + yawAdd, length: len });
+      return true;
+    };
     if (t.auto !== 'oval') {
-      buildings.push({ kind: 'stand', x: p0.x + p0.lx * off, y: p0.y, z: p0.z + p0.lz * off, yaw, length: 80 });
-      buildings.push({ kind: 'pit', x: p0.x - p0.lx * (off + 2), y: p0.y, z: p0.z - p0.lz * (off + 2), yaw, length: 90 });
+      const standNear = width / 2 + SHOULDER + 8, pitNear = width / 2 + SHOULDER + 8;
+      // 観客席は左が第一候補、ピットは観客席の反対側
+      let standSide = 0;
+      outer: for (const len of [80, 50]) for (const side of [1, -1]) for (const shift of [0, -50, 50]) {
+        if (place('stand', side, standNear, len, shift, side > 0 ? 0 : Math.PI)) { standSide = side; break outer; }
+      }
+      const pitSides = standSide === 0 ? [-1, 1] : [-standSide];
+      outer2: for (const len of [90, 55]) for (const side of pitSides) for (const shift of [0, -50, 50]) {
+        if (place('pit', side, pitNear, len, shift, side < 0 ? 0 : Math.PI)) break outer2;
+      }
     } else {
       // オーバル：外側に観客席を並べ、内側にピット
-      const meanK = path.reduce((a, q) => a + q.k, 0) / n;
+      const meanK = path.reduce((a2, q) => a2 + q.k, 0) / n;
       const out = meanK >= 0 ? -1 : 1;
-      for (const ds of [-140, 0, 140]) {
-        const q = path[((Math.round(ds / (length / n)) % n) + n) % n];
-        const o = (width / 2 + 14) * out;
-        buildings.push({ kind: 'stand', x: q.x + q.lx * o, y: q.y, z: q.z + q.lz * o, yaw: yawFromDir(q.tx, q.tz) + (out > 0 ? 0 : Math.PI), length: 120 });
-      }
-      const o = (width / 2 + 25) * -out;
-      buildings.push({ kind: 'pit', x: p0.x + p0.lx * o, y: p0.y, z: p0.z + p0.lz * o, yaw: yaw + (out > 0 ? Math.PI : 0), length: 110 });
+      for (const ds of [-140, 0, 140]) place('stand', out, width / 2 + 13, 120, ds, out > 0 ? 0 : Math.PI);
+      // ピットの向きは直線のときと同じ決まり（右側なら回さない、左側なら半回転）
+      for (const shift of [0, -60, 60]) if (place('pit', -out, width / 2 + 16, 110, shift, -out < 0 ? 0 : Math.PI)) break;
     }
   }
   // 市街地：壁の外に街の建物（実在の建物があるときは置かない）
