@@ -182,6 +182,9 @@ class NoiseVoice {
 export class Sound {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
+  /** メニューの効果音の出口（レースの音とは別。レース中でなくても鳴る） */
+  private uiBus: GainNode | null = null;
+  private lastUi = 0;
   private noise: AudioBuffer | null = null;
   private engine: EngineVoice | null = null;
   private others: EngineVoice[] = [];
@@ -209,6 +212,8 @@ export class Sound {
         this.master.gain.value = 0;
         const comp = this.ctx.createDynamicsCompressor();
         this.master.connect(comp).connect(this.ctx.destination);
+        this.uiBus = this.ctx.createGain();
+        this.uiBus.connect(comp);
         this.noise = noiseBuffer(this.ctx);
       }
       if (this.ctx.state === 'suspended') void this.ctx.resume();
@@ -218,6 +223,56 @@ export class Sound {
   }
 
   get running() { return this.ctx?.state === 'running'; }
+
+  /**
+   * メニューの効果音（音の素材は使わず、その場で作る）。
+   * hover はボタンに乗ったとき、move は一覧で選ぶとき、tab は種類の切り替え、select は決定、back は戻る、start は走り出す
+   */
+  ui(kind: 'hover' | 'move' | 'tab' | 'select' | 'back' | 'start') {
+    const ctx = this.ctx, bus = this.uiBus, nz = this.noise;
+    if (!ctx || !bus || !nz || this.muted || ctx.state !== 'running') return;
+    const t = ctx.currentTime;
+    // 続けて鳴らしすぎない（キーを押し続けたとき）
+    if (kind === 'hover' && t - this.lastUi < 0.06) return;
+    this.lastUi = t;
+    bus.gain.value = this.volume;
+    const tone = (type: OscillatorType, f0: number, f1: number, at: number, dur: number, peak: number, lp = 6000) => {
+      const o = ctx.createOscillator(), g = ctx.createGain(), f = ctx.createBiquadFilter();
+      o.type = type;
+      o.frequency.setValueAtTime(f0, t + at);
+      o.frequency.exponentialRampToValueAtTime(f1, t + at + dur);
+      f.type = 'lowpass'; f.frequency.value = lp;
+      g.gain.setValueAtTime(0.0001, t + at);
+      g.gain.exponentialRampToValueAtTime(peak, t + at + 0.006);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + at + dur);
+      o.connect(f).connect(g).connect(bus);
+      o.start(t + at); o.stop(t + at + dur + 0.02);
+    };
+    const whoosh = (at: number, dur: number, f0: number, f1: number, peak: number) => {
+      const src = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+      src.buffer = nz;
+      f.type = 'bandpass'; f.Q.value = 1.2;
+      f.frequency.setValueAtTime(f0, t + at);
+      f.frequency.exponentialRampToValueAtTime(f1, t + at + dur);
+      g.gain.setValueAtTime(0.0001, t + at);
+      g.gain.exponentialRampToValueAtTime(peak, t + at + dur * 0.6);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + at + dur);
+      src.connect(f).connect(g).connect(bus);
+      src.start(t + at, Math.random()); src.stop(t + at + dur + 0.02);
+    };
+    if (kind === 'hover') tone('sine', 2400, 2000, 0, 0.03, 0.025);
+    else if (kind === 'move') { tone('triangle', 1500, 1150, 0, 0.05, 0.08); whoosh(0, 0.06, 3000, 5000, 0.03); }
+    else if (kind === 'tab') { tone('square', 700, 700, 0, 0.04, 0.035, 2500); tone('square', 1050, 1050, 0.045, 0.06, 0.035, 2500); }
+    else if (kind === 'select') { tone('triangle', 880, 880, 0, 0.09, 0.12); tone('triangle', 1320, 1320, 0.06, 0.16, 0.1); whoosh(0, 0.18, 1200, 4000, 0.05); }
+    else if (kind === 'back') { tone('triangle', 900, 520, 0, 0.12, 0.1); whoosh(0, 0.12, 3000, 900, 0.03); }
+    else if (kind === 'start') {
+      // 吹け上がるうなりと、上がっていく風の音、最後に明るい和音
+      tone('sawtooth', 70, 210, 0, 0.55, 0.12, 900);
+      tone('sawtooth', 105, 315, 0, 0.55, 0.06, 1400);
+      whoosh(0, 0.6, 400, 6000, 0.14);
+      for (const [f, d] of [[440, 0], [554, 0.02], [659, 0.04], [880, 0.06]] as const) tone('triangle', f, f, 0.45 + d, 0.7, 0.07, 5000);
+    }
+  }
 
   start(s: Session) {
     this.stop();

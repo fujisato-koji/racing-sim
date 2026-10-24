@@ -89,6 +89,9 @@ interface NavSpec {
   back?: string;
 }
 
+/** 対戦相手に配る番号（同じ番号が並ばないように） */
+const RACE_NUMBERS = [7, 11, 22, 33, 44, 55, 63, 77, 88, 99];
+
 const COLORS = ['#c8312b', '#3d6fb6', '#2f7d4a', '#f0b400', '#7b4fb0', '#e07020', '#20a0a0', '#d0d0d0'];
 
 class App {
@@ -139,6 +142,22 @@ class App {
     };
     this.input.onAction = act;
     window.addEventListener('keydown', (e) => this.onMenuKey(e));
+    // メニューの効果音：押したボタンの役割で鳴らし分ける
+    overlay.addEventListener('click', (e) => {
+      const b = (e.target as HTMLElement).closest('button');
+      if (!b) return;
+      const d = b.dataset;
+      if ('back' in d || 'menu' in d || 'car' in d && b.closest('.buttons')) this.sound.ui('back');
+      else if ('go' in d || 'again' in d || 'restart' in d || 'cardNext' in d) this.sound.ui(this.session && !this.resultsShown && !('again' in d || 'restart' in d) ? 'select' : 'start');
+      else if ('tab' in d) this.sound.ui('tab');
+      else if ('course' in d || 'car' in d) this.sound.ui('move');
+      else this.sound.ui('select');
+    }, true);
+    overlay.addEventListener('pointerover', (e) => {
+      const b = (e.target as HTMLElement).closest('button');
+      if (!b || isTouch || (e.relatedTarget instanceof Node && b.contains(e.relatedTarget))) return;
+      this.sound.ui('hover');
+    });
     this.touch.onAction = act;
     this.pad.onAction = act;
     document.body.classList.toggle('manual', this.prefs.manual);
@@ -226,7 +245,7 @@ class App {
         next?.scrollIntoView({ block: 'nearest' });
       } else {
         const items = visible(nav.focusList);
-        if (items.length > 0) focus(step(items, this.navFocus ? items.indexOf(this.navFocus) : -1, d));
+        if (items.length > 0) { focus(step(items, this.navFocus ? items.indexOf(this.navFocus) : -1, d)); this.sound.ui('move'); }
         else handled = false;
       }
     } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
@@ -235,7 +254,7 @@ class App {
       if (tabs.length > 0) step(tabs, tabs.findIndex((x) => x.classList.contains('selected')), d)?.click();
       else {
         const items = visible(nav.sideList ?? '.buttons button');
-        if (items.length > 0) focus(step(items, this.navFocus ? items.indexOf(this.navFocus) : -1, d));
+        if (items.length > 0) { focus(step(items, this.navFocus ? items.indexOf(this.navFocus) : -1, d)); this.sound.ui('move'); }
         else handled = false;
       }
     } else if (e.key === 'Enter') {
@@ -304,7 +323,7 @@ class App {
     this.globe = globe;
     globe.setMarkers(this.globeMarkers());
     globe.setFraming('title');
-    globe.onPick = (id) => start(id);
+    globe.onPick = (id) => { this.sound.ui('start'); start(id); };
   }
 
   /** 地球儀の柱（実在のコース） */
@@ -421,6 +440,7 @@ class App {
       const c = COURSES.find((x) => x.id === id);
       if (!c) return;
       if ((c.category ?? 'original') !== this.courseTab) setTab(c.category ?? 'original');
+      this.sound.ui('select');
       choose(c);
     };
     renderList();
@@ -618,6 +638,9 @@ class App {
         for (let i = 0; i < this.opponents; i++) {
           const p = this.sameCar ? cloneParams(this.car) : cloneParams(CAR_PRESETS[i % CAR_PRESETS.length]);
           if (this.sameCar || p.color === this.car.color) p.color = COLORS[(i + 1) % COLORS.length];
+          // 番号はみな違うものにする
+          const used = new Set([this.car.livery.number, ...opponents.map((o) => o.livery.number)]);
+          if (p.livery.number === 0 || used.has(p.livery.number)) p.livery.number = RACE_NUMBERS.find((n) => !used.has(n)) ?? 0;
           opponents.push(p);
         }
       }
