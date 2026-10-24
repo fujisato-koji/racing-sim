@@ -10,7 +10,8 @@
     "check": "tsx test/checks.ts",
     "race": "tsx test/ai-race.ts",
     "skidpad": "tsx test/skidpad.ts",
-    "map": "tsx test/map-png.ts"
+    "map": "tsx test/map-png.ts",
+    "feel": "tsx test/keyboard-feel.ts"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.21.0",

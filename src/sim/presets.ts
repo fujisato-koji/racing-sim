@@ -9,7 +9,7 @@ function axle(track: number, tireRadius: number, tireWidth: number, wheelMass: n
 const open: DiffParams = { type: 'open', preload: 0, lock: 0 };
 const lsd = (preload: number, lock: number): DiffParams => ({ type: 'lsd', preload, lock });
 
-const assists = { abs: true, tcs: true, steerAssist: true };
+const assists = { abs: true, tcs: true, esc: true, steerAssist: true };
 
 export const CAR_PRESETS: CarParams[] = [
   {

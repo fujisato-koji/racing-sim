@@ -109,6 +109,9 @@ export class Vehicle {
   airTime = 0;
   /** いま切れる最大の角度 [rad]（補助で速さに応じて絞った後） */
   steerLimit = 0.5;
+  /** 横滑り防止が働いている */
+  escActive = false;
+  private readonly escBrake = [0, 0, 0, 0];
   /** 実際に使ったアクセル（補助で絞った後） */
   throttleOut = 0;
   brakeOut = 0;
@@ -251,7 +254,22 @@ export class Vehicle {
       lim = Math.min(maxSteer, (p.wheelbase * muFront * G) / (v * v) + p.tire.peakAngleDeg * DEG * front.surface.slipScale * 1.25);
     }
     this.steerLimit = lim;
-    const delta = raw.steer * lim;
+    let delta = raw.steer * lim;
+    if (p.assists.steerAssist) {
+      // 前輪が実際に進んでいる向き（車体に対する角度、右が正）から、最大摩擦の滑り角より先へは切らない。
+      // キーボードは一気に切れるので、車体が向きを変える前に前輪だけが滑り切るのを防ぐ
+      const vFront = _v1.set(0, 0, this.geom.frontAxleZ).applyQuaternion(this.quat);
+      _v2.copy(angvel).cross(vFront).add(linvel);
+      const vxF = _v2.dot(fwd);
+      if (vxF > 3) {
+        const thetaF = Math.atan2(_v2.dot(right), vxF);
+        const band = p.tire.peakAngleDeg * DEG * front.surface.slipScale;
+        const blend = Math.min(1, (vxF - 3) / 5);
+        const lo = thetaF - band, hi = thetaF + band;
+        const clamped = Math.max(lo, Math.min(hi, delta));
+        delta = Math.max(-maxSteer, Math.min(maxSteer, delta + (clamped - delta) * blend));
+      }
+    }
     const steerAngles = [delta, delta];
     if (Math.abs(delta) > 1e-4) {
       const L = p.wheelbase, t = p.front.track;
@@ -342,6 +360,7 @@ export class Vehicle {
     const sigY = p.tire.relaxLength, sigX = sigY * 0.5;
     const axles: Vector3[] = [];
     let maxSpin = 0;
+    let dragSlip = false;
     for (let k = 0; k < 4; k++) {
       const w = this.wheels[k];
       const cs = Math.cos(w.steer), sn = Math.sin(w.steer);
@@ -412,7 +431,15 @@ export class Vehicle {
       if (p.assists.abs && brake > 0.05 && avx > 2 && w.kappa * dir < -1.2 * kpS) w.absFactor = Math.max(0.25, w.absFactor - 12 * dt);
       else w.absFactor = Math.min(1, w.absFactor + 6 * dt);
       const driven = w.front ? drivenAxles(p.drive.layout).front : drivenAxles(p.drive.layout).rear;
-      if (driven) maxSpin = Math.max(maxSpin, (w.kappa * dir) / kpS);
+      if (driven) {
+        // 前後の空転に加えて、前後と横を合わせた滑りが最大摩擦を超えたら、駆動を絞る（後ろが流れるのを防ぐ）
+        const sx = (w.kappa * dir) / kpS;
+        const sy = Math.atan(w.tanAlpha) / (p.tire.peakAngleDeg * DEG * w.surface.slipScale);
+        maxSpin = Math.max(maxSpin, sx);
+        if (sx > 0.15) maxSpin = Math.max(maxSpin, (1.3 * Math.hypot(sx, sy)) / 1.05);
+        // エンジンブレーキで滑っている
+        if (sx < -0.15 && Math.hypot(sx, sy) > 1.05) dragSlip = true;
+      }
 
       this.brakeCap[k] = brake * w.brakeTorque * w.absFactor + w.surface.rolling * w.fz * R;
 
@@ -425,7 +452,25 @@ export class Vehicle {
     }
 
     // ---------------------------------------------------- エンジンと駆動系
-    if (p.assists.tcs && maxSpin > 1.3) this.tcsFactor = Math.max(0.15, this.tcsFactor - 5 * dt);
+    // 横滑り防止：ヨーレートがハンドルから見込める値を超えて回りすぎたら、外側の前輪にブレーキをかけて駆動を絞る
+    this.escActive = false;
+    this.escBrake.fill(0);
+    if (p.assists.esc && vf > 8 && !this.airborne) {
+      const rNow = -angvel.dot(up);
+      const rMax = ((muFront * G) / vf) * 0.95;
+      const rRef = Math.max(-rMax, Math.min(rMax, ((vf * Math.tan(delta)) / p.wheelbase) / (1 + (vf / 28) ** 2)));
+      const beta = Math.atan2(linvel.dot(right), vf);
+      let over = Math.sign(rNow) === Math.sign(rRef) || Math.abs(rRef) < 0.02 ? Math.abs(rNow) - Math.abs(rRef) - 0.06 : Math.abs(rNow) - 0.06;
+      // 後ろが外へ流れて横滑り角が大きい（右回りなら速度は車体の左を向く）
+      if (Math.sign(beta) === -Math.sign(rNow)) over = Math.max(over, (Math.abs(beta) - 8 * DEG) * 2);
+      if (over > 0) {
+        const outer = rNow > 0 ? 0 : 1;
+        this.escBrake[outer] = Math.min(this.wheels[outer].brakeTorque, over * 5000);
+        this.escActive = true;
+        maxSpin = Math.max(maxSpin, 1.31);
+      }
+    }
+    if (p.assists.tcs && maxSpin > 1.3) this.tcsFactor = Math.max(0.05, this.tcsFactor - 8 * dt);
     else this.tcsFactor = Math.min(1, this.tcsFactor + 2 * dt);
     let thr = throttle * (p.assists.tcs ? this.tcsFactor : 1);
     if (this.shifting > 0) thr = 0;
@@ -434,6 +479,8 @@ export class Vehicle {
     else if (rpm < p.engine.redlineRpm - 300) this.limiter = false;
     if (this.limiter) thr = 0;
     thr = Math.max(thr, Math.max(0, Math.min(1, (p.engine.idleRpm - rpm) / 250)) * 0.6);
+    // エンジンブレーキの制御：駆動輪がエンジンブレーキで滑りすぎたら少し開けて弱める
+    if (p.assists.tcs && dragSlip && this.gear > 0 && !this.limiter) thr = Math.max(thr, 0.25);
     this.throttleOut = thr;
     this.brakeOut = brake;
     drt.ext[ENGINE] = thr * engineTorque(p, rpm) * p.gearbox.efficiency
@@ -445,6 +492,7 @@ export class Vehicle {
     for (let k = 0; k < 4; k++) {
       if (!this.wheels[k].contact) this.brakeCap[k] = brake * this.wheels[k].brakeTorque + 2;
     }
+    for (let k = 0; k < 4; k++) this.brakeCap[k] += this.escBrake[k];
     drt.solve(dt, clutchCap, this.brakeCap);
     this.rpm = drt.w[ENGINE] * RPM;
 

@@ -116,6 +116,8 @@ export interface CarParams {
   assists: {
     abs: boolean;
     tcs: boolean;
+    /** 横滑り防止 */
+    esc: boolean;
     steerAssist: boolean;
   };
 }
@@ -378,8 +380,9 @@ export const FIELDS: FieldDef[] = [
   { path: 'aero.clRear', label: 'ダウンフォース係数（後）', group: '空力', kind: 'number', min: -0.3, max: 3, step: 0.01 },
   { path: 'aero.centerOffset', label: '空力中心の位置（重心より前が正）', group: '空力', kind: 'number', unit: 'm', min: -1.5, max: 1.5, step: 0.01 },
   { path: 'assists.abs', label: 'ABS', group: '運転の補助', kind: 'bool' },
-  { path: 'assists.tcs', label: 'トラクションコントロール', group: '運転の補助', kind: 'bool' },
-  { path: 'assists.steerAssist', label: '速度に応じた切れ角の制限', group: '運転の補助', kind: 'bool' },
+  { path: 'assists.tcs', label: 'トラクションコントロール（エンジンブレーキの制御を含む）', group: '運転の補助', kind: 'bool' },
+  { path: 'assists.esc', label: '横滑り防止（ESC）', group: '運転の補助', kind: 'bool' },
+  { path: 'assists.steerAssist', label: '切れ角の補助（前輪が最大摩擦の滑り角を超えないようにする）', group: '運転の補助', kind: 'bool' },
 ];
 
 export function getPath(obj: unknown, path: string): unknown {

@@ -119,6 +119,7 @@ export class Hud {
     const flags = [v.airborne ? '空中' : (w ? SURFACES[w.surface.id].name : '')];
     if (v.p.assists.tcs && v.throttleOut < v.controls.throttle - 0.1 && !v.airborne && v.gear > 0) flags.push('TCS');
     if (v.wheels.some((x) => x.absFactor < 0.95)) flags.push('ABS');
+    if (v.escActive) flags.push('ESC');
     this.surface.textContent = flags.filter(Boolean).join('　');
 
     const race = s.race;
