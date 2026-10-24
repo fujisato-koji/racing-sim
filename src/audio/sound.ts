@@ -201,6 +201,9 @@ export class Sound {
   private nextPop = 0;
   volume = 0.7;
   muted = false;
+  /** 実況が話している間、レースの音を下げる（1 はそのまま） */
+  duck = 1;
+  private ducking = false;
 
   /** タップやクリックの処理の中で呼ぶ（ブラウザは利用者の操作なしに音を出させない） */
   unlock() {
@@ -308,7 +311,10 @@ export class Sound {
     const ctx = this.ctx, m = this.master;
     if (!ctx || !m) return;
     const on = s && !s.paused && !this.muted;
-    m.gain.setTargetAtTime(on ? this.volume : 0, ctx.currentTime, 0.08);
+    // 下げるときは速く（0.08 秒）、戻すときはゆっくり（0.35 秒）
+    const down = this.duck < 1;
+    m.gain.setTargetAtTime(on ? this.volume * this.duck : 0, ctx.currentTime, down || !this.ducking ? 0.08 : 0.35);
+    this.ducking = down;
     if (!s || !this.engine) return;
     const me = s.player?.vehicle;
     if (!me) return;

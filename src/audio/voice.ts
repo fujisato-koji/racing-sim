@@ -21,6 +21,15 @@ export class Voice {
   private current = -1;
   private queued: { text: string; priority: number } | null = null;
   mode: VoiceMode = 'all';
+  private speakingFlag = false;
+  /** いま読んでいる文の番号（止めた前の文の終わりの知らせを無視するため） */
+  private seq = 0;
+
+  /** 読んでいる最中か（その間、エンジンなどの音を下げる）。ブラウザが読んでいないと言えば読んでいない扱い */
+  get talking() {
+    const synth = this.synth;
+    return this.speakingFlag && !!synth && (synth.speaking || synth.pending);
+  }
   volume = 0.7;
   muted = false;
 
@@ -55,6 +64,8 @@ export class Voice {
   stop() {
     this.queued = null;
     this.current = -1;
+    this.speakingFlag = false;
+    this.seq++;
     try { this.synth?.cancel(); } catch { /* 止められなくても困らない */ }
   }
 
@@ -76,16 +87,21 @@ export class Voice {
     // 実況は少し速く、大事な所ほど高く勢いよく
     u.rate = isMenu ? 1.05 : priority >= 3 ? 1.18 : 1.12;
     u.pitch = isMenu ? 1 : priority >= 3 ? 1.15 : 1.05;
-    u.volume = Math.min(1, this.volume * 1.2);
+    // 声は音量の設定が標準（0.7）のとき最大。それより上げても声はこれ以上大きくならないので、ゲームの音を下げて釣り合わせる
+    u.volume = Math.min(1, this.volume / 0.7);
     this.current = priority;
+    this.speakingFlag = true;
+    const id = ++this.seq;
     u.onend = () => {
+      if (id !== this.seq) return;
       this.current = -1;
+      this.speakingFlag = false;
       const q = this.queued;
       this.queued = null;
       if (q) this.speak(q.text, q.priority, false);
     };
-    u.onerror = () => { this.current = -1; };
-    try { synth.speak(u); } catch { this.current = -1; }
+    u.onerror = () => { if (id === this.seq) { this.current = -1; this.speakingFlag = false; } };
+    try { synth.speak(u); } catch { this.current = -1; this.speakingFlag = false; }
   }
 }
 
