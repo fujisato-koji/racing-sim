@@ -170,10 +170,11 @@ class App {
   // ------------------------------------------------------------ タイトル
   private showTitle() {
     const el = this.screen(`
-      <h1>racing-sim</h1>
-      <p class="lead">A racing game where tire friction, suspension, the drivetrain from engine to wheels, and aerodynamics are all simulated.</p>
+      <h1 class="game-title">Apex <span>Atlas</span></h1>
+      <p class="tagline">Real circuits. Real physics. Race the world.</p>
+      <p class="lead">Pick a circuit on the globe and race it. Tire friction, suspension, the drivetrain from engine to wheels, and aerodynamics are all simulated.</p>
+      <div class="buttons title-start"><button class="primary" data-go>Start</button></div>
       ${this.prefsHtml()}
-      <div class="buttons"><button class="primary" data-go>Start</button></div>
       <p class="note">${isTouch
         ? 'Hold the phone in landscape and tilt it like a steering wheel. Right pedal is throttle, left pedal is brake. Shifting is automatic.'
         : 'Play with a keyboard or gamepad. ← → steer, ↑ throttle, ↓ brake. In manual mode, E shifts up and Q shifts down.'}</p>`);

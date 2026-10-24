@@ -1,4 +1,6 @@
-# racing-sim
+# Apex Atlas
+
+（リポジトリ名と配信の URL は racing-sim のままです。2026-10-24 にゲームの名前を Apex Atlas に決めました。）
 
 ブラウザで遊べる three.js のレースゲームです。
 車の動きは、タイヤの摩擦、サスペンション、エンジンから車輪までの駆動系、空気抵抗を計算して決めています。
@@ -7,7 +9,7 @@
 
 ## English
 
-racing-sim is a browser racing game built with three.js. Tire friction, suspension, the drivetrain from engine to wheels, and aerodynamics are all simulated. The game itself is in English.
+Apex Atlas is a browser racing game built with three.js. Tire friction, suspension, the drivetrain from engine to wheels, and aerodynamics are all simulated. The game itself is in English.
 
 Play: <https://fujisato-koji.github.io/racing-sim/> (keyboard, gamepad, or a phone held in landscape and tilted to steer)
 

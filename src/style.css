@@ -209,3 +209,13 @@ body.touch .course-row { padding: 5px 8px; font-size: 13px; }
 body.touch .course-panel .credit { font-size: 9.5px; line-height: 1.4; }
 .course-panel .credit { font-size: 11px; }
 body.touch .hud-label { display: none; }
+
+/* タイトル */
+.game-title { font-size: 52px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; line-height: 1; margin: 0 0 10px; }
+.game-title span { color: var(--accent); }
+.tagline { margin: 0 0 14px; font-size: 13px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); }
+body.touch .game-title { font-size: 36px; }
+body.touch .tagline { font-size: 11px; margin-bottom: 8px; }
+.title-start { justify-content: flex-start; margin: 4px 0 14px; }
+.title-start button { padding: 11px 34px; font-size: 16px; }
+body.touch .lead { display: none; }
