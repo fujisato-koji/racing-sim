@@ -353,6 +353,12 @@ export class Vehicle {
       if (!w.contact || w.fz <= 0) {
         w.u = 0; w.v = 0; w.kappa = 0; w.tanAlpha = 0; w.fx = 0; w.fy = 0; w.slipSpeed = 0;
         this.brakeCap[k] = 0;
+        // 浮いた駆動輪の空転もトラクションコントロールで抑える（着地で後ろが流れないように）
+        const drivenAir = w.front ? drivenAxles(p.drive.layout).front : drivenAxles(p.drive.layout).rear;
+        if (drivenAir) {
+          const kpS = p.tire.peakSlip * w.surface.slipScale;
+          maxSpin = Math.max(maxSpin, (omega * w.radius - vf) / Math.max(Math.abs(vf), 3) / kpS);
+        }
         continue;
       }
       const n = w.normal;
