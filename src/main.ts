@@ -63,9 +63,9 @@ function drawThumb(cv: HTMLCanvasElement, c: CourseDef, color = '#e8ecf2') {
 }
 
 const PREFS = 'racing-sim.prefs.v1';
-interface Prefs { volume: number; muted: boolean; tiltRange: number; centerSoft: number; manual: boolean; quality: QualityPref }
+interface Prefs { volume: number; muted: boolean; tiltRange: number; centerSoft: number; manual: boolean; quality: QualityPref; keySteer: number }
 function loadPrefs(): Prefs {
-  const d: Prefs = { volume: 0.7, muted: false, tiltRange: 40, centerSoft: 1, manual: false, quality: 'auto' };
+  const d: Prefs = { volume: 0.7, muted: false, tiltRange: 40, centerSoft: 1, manual: false, quality: 'auto', keySteer: 1 };
   try { return { ...d, ...(JSON.parse(localStorage.getItem(PREFS) ?? '{}') as Partial<Prefs>) }; } catch { return d; }
 }
 function savePrefs(p: Prefs) {
@@ -103,6 +103,7 @@ class App {
     this.touch = new TouchControls(stage);
     this.touch.tiltSteer.opt.range = this.prefs.tiltRange;
     this.touch.tiltSteer.opt.centerSoft = this.prefs.centerSoft;
+    this.input.sensitivity = this.prefs.keySteer;
     this.sound.volume = this.prefs.volume;
     this.sound.muted = this.prefs.muted;
     this.touch.setMuted(this.prefs.muted);
@@ -499,6 +500,7 @@ class App {
       <label class="field"><span class="field-name">Mute</span><input type="checkbox" ${this.prefs.muted ? 'checked' : ''} data-mute><span></span></label>
       <label class="field"><span class="field-name">Graphics</span><select data-quality>${(['auto', 'low', 'medium', 'high'] as const).map((q) => `<option value="${q}" ${this.prefs.quality === q ? 'selected' : ''}>${{ auto: 'Auto (lowers resolution when slow)', low: 'Low', medium: 'Medium', high: 'High' }[q]}</option>`).join('')}</select><span></span></label>
       <label class="field"><span class="field-name">Transmission</span><select data-trans><option value="auto" ${this.prefs.manual ? '' : 'selected'}>Automatic</option><option value="manual" ${this.prefs.manual ? 'selected' : ''}>Manual (E/Q, RB/LB, on-screen ▲▼)</option></select><span></span></label>
+      ${isTouch ? '' : `<label class="field"><span class="field-name">Keyboard steering speed</span><input type="range" min="0.5" max="2" step="0.1" value="${this.prefs.keySteer}" data-keysteer><span class="field-unit" data-keysteer-text>${Math.round(this.prefs.keySteer * 100)}%</span></label>`}
       ${isTouch ? `<label class="field"><span class="field-name">Tilt for full lock</span><input type="range" min="15" max="90" step="5" value="${this.prefs.tiltRange}" data-tilt><span class="field-unit" data-tilt-text>${this.prefs.tiltRange}°</span></label>
       <label class="field"><span class="field-name">Center deadzone</span><input type="range" min="0" max="1" step="0.05" value="${this.prefs.centerSoft}" data-soft><span class="field-unit" data-soft-text>${Math.round(this.prefs.centerSoft * 100)}%</span></label>` : ''}
     </div>`;
@@ -514,6 +516,13 @@ class App {
       this.view.applyQuality();
       this.view.refreshSky();
       this.view.resize();
+      savePrefs(this.prefs);
+    });
+    const ks = el.querySelector('[data-keysteer]') as HTMLInputElement | null;
+    ks?.addEventListener('input', () => {
+      this.prefs.keySteer = Number(ks.value);
+      this.input.sensitivity = this.prefs.keySteer;
+      (el.querySelector('[data-keysteer-text]') as HTMLElement).textContent = `${Math.round(this.prefs.keySteer * 100)}%`;
       savePrefs(this.prefs);
     });
     const trans = el.querySelector('[data-trans]') as HTMLSelectElement | null;

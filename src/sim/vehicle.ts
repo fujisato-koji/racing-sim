@@ -114,6 +114,8 @@ export class Vehicle {
   /** 横滑り防止が働いている */
   escActive = false;
   private readonly escBrake = [0, 0, 0, 0];
+  /** 横滑り防止の見込みのヨーレート（ハンドルを戻したあとはゆっくり下げる） */
+  private escRef = 0;
   /** 実際に使ったアクセル（補助で絞った後） */
   throttleOut = 0;
   brakeOut = 0;
@@ -467,23 +469,34 @@ export class Vehicle {
     }
 
     // ---------------------------------------------------- エンジンと駆動系
-    // 横滑り防止：ヨーレートがハンドルから見込める値を超えて回りすぎたら、外側の前輪にブレーキをかけて駆動を絞る
+    // 横滑り防止：車が回りすぎたとき（後ろが流れたとき）だけ、外側の前輪にブレーキをかける。
+    // 見込みのヨーレートは、切れ角から幾何学的に決まる値（曲がりにくさを見込まない）を、摩擦で曲がれる上限で抑えたもの。
+    // ハンドルを戻した直後は車がまだ回っているので、見込みの値はすぐには下げず 0.4 秒かけて下げる
     this.escActive = false;
     this.escBrake.fill(0);
     if (p.assists.esc && vf > 8 && !this.airborne) {
       const rNow = -angvel.dot(up);
-      const rMax = ((muFront * G) / vf) * 0.95;
-      const rRef = Math.max(-rMax, Math.min(rMax, ((vf * Math.tan(delta)) / p.wheelbase) / (1 + (vf / 28) ** 2)));
+      const rMax = (muFront * G) / vf;
+      const rGeo = Math.max(-rMax, Math.min(rMax, (vf * Math.tan(delta)) / p.wheelbase));
+      const decay = Math.exp(-dt / 0.4);
+      this.escRef = Math.abs(rGeo) >= Math.abs(this.escRef) || Math.sign(rGeo) !== Math.sign(this.escRef) && Math.abs(rGeo) > 0.02 ? rGeo : this.escRef * decay + rGeo * (1 - decay);
+      const rRef = this.escRef;
       const beta = Math.atan2(linvel.dot(right), vf);
-      let over = Math.sign(rNow) === Math.sign(rRef) || Math.abs(rRef) < 0.02 ? Math.abs(rNow) - Math.abs(rRef) - 0.06 : Math.abs(rNow) - 0.06;
+      const same = Math.sign(rNow) === Math.sign(rRef) && Math.abs(rRef) > 0.02;
+      // 見込みより 25% と 0.1 rad/s 以上多く回っている
+      let over = same ? Math.abs(rNow) - Math.max(Math.abs(rRef) * 1.25, Math.abs(rRef) + 0.1) : Math.abs(rNow) - 0.12;
       // 後ろが外へ流れて横滑り角が大きい（右回りなら速度は車体の左を向く）
-      if (Math.sign(beta) === -Math.sign(rNow)) over = Math.max(over, (Math.abs(beta) - 8 * DEG) * 2);
+      const sliding = Math.sign(beta) === -Math.sign(rNow) ? Math.abs(beta) - 6 * DEG : 0;
+      if (sliding > 0) over = Math.max(over, sliding * 2);
       if (over > 0) {
         const outer = rNow > 0 ? 0 : 1;
         this.escBrake[outer] = Math.min(this.wheels[outer].brakeTorque, over * 5000);
         this.escActive = true;
-        maxSpin = Math.max(maxSpin, 1.31);
+        // アクセルを絞るのは後ろが流れているときだけ
+        if (sliding > 0) maxSpin = Math.max(maxSpin, 1.31);
       }
+    } else {
+      this.escRef = 0;
     }
     if (p.assists.tcs && maxSpin > 1.3) this.tcsFactor = Math.max(0.05, this.tcsFactor - 8 * dt);
     else this.tcsFactor = Math.min(1, this.tcsFactor + 2 * dt);

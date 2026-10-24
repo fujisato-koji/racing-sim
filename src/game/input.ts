@@ -1,4 +1,5 @@
 // キーボードの入力。押すか離すかの 0/1 を、操作量の立ち上がりと戻りの速さで滑らかにする。
+// ハンドルは、押している時間で少しずつ切れ（速いほどゆっくり）、短く押したときは小さく切れるように曲線をかける。
 import type { Controls } from '../sim/vehicle';
 
 const STEER_LEFT = ['ArrowLeft', 'KeyA'];
@@ -9,6 +10,10 @@ const BRAKE = ['ArrowDown', 'KeyS', 'Space'];
 export class KeyboardInput {
   private readonly down = new Set<string>();
   private readonly c: Controls = { steer: 0, throttle: 0, brake: 0 };
+  /** 押した時間で決まるハンドルの量（曲線をかける前） */
+  private s = 0;
+  /** 切れる速さの倍率（設定の Keyboard steering speed） */
+  sensitivity = 1;
   onAction: (action: 'camera' | 'reset' | 'pause' | 'mirror' | 'map' | 'sound' | 'shiftUp' | 'shiftDown') => void = () => {};
 
   constructor(target: Window = window) {
@@ -49,16 +54,19 @@ export class KeyboardInput {
     c.brake = toward(c.brake, this.any(BRAKE) ? 1 : 0, 4.5, 8);
     const left = this.any(STEER_LEFT), right = this.any(STEER_RIGHT);
     const target = left === right ? 0 : right ? 1 : -1;
-    // 速いほどゆっくり切れる。中央へ戻すとき、反対へ切り返すときは速い
-    const v = Math.min(1, Math.abs(speed) / 40);
-    const turnRate = 3.2 - 1.9 * v;
-    const returning = target === 0 || Math.sign(target) !== Math.sign(c.steer);
-    c.steer = toward(c.steer, target, returning ? 6 : turnRate, returning ? 6 : turnRate);
-    if (returning && target !== 0 && Math.abs(c.steer) < 0.05) c.steer = toward(c.steer, target, turnRate, turnRate);
+    // 押している間に少しずつ切れる。いっぱいまでの時間は、止まっているとき 0.3 秒、150 km/h で約 1 秒
+    const v = Math.min(1, Math.abs(speed) / 42);
+    const turnRate = this.sensitivity / (0.3 + 0.75 * v);
+    // 中央へ戻すとき、反対へ切り返すときは速い（速いほど少しゆっくり戻して、車の揺れを抑える）
+    const backRate = 6 - 2.5 * v;
+    const returning = target === 0 || (c.steer !== 0 && Math.sign(target) !== Math.sign(c.steer));
+    this.s = toward(this.s, target, returning ? backRate : turnRate, returning ? backRate : turnRate);
+    // 押し始めは小さく、押し続けるといっぱいまで（短く押せば小さく直せる）
+    c.steer = Math.sign(this.s) * Math.abs(this.s) ** 1.7;
     return { steer: c.steer, throttle: c.throttle, brake: c.brake };
   }
 
   reset() {
-    this.c.steer = 0; this.c.throttle = 0; this.c.brake = 0;
+    this.c.steer = 0; this.c.throttle = 0; this.c.brake = 0; this.s = 0;
   }
 }
