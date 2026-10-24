@@ -14,6 +14,7 @@ const assists = { abs: true, tcs: true, esc: true, steerAssist: true };
 export const CAR_PRESETS: CarParams[] = [
   {
     id: 'kei', name: 'Kei Car', color: '#e8e2d0',
+    livery: { style: 'twotone', number: 5, color2: '#3a8f9a', plate: '#ffffff' },
     body: { length: 3.395, width: 1.475, height: 1.65, groundClearance: 0.15, frontOverhang: 0.5, cabinFront: 0.22, cabinRear: 0.97, beltLine: 0.52,
       mass: 860, weightFront: 0.6, cgHeight: 0.58, inertiaScale: 1, driverSide: 'right', style: 'kei' },
     wheelbase: 2.46,
@@ -30,6 +31,7 @@ export const CAR_PRESETS: CarParams[] = [
   },
   {
     id: 'hatch', name: 'Compact Hatch', color: '#3d6fb6',
+    livery: { style: 'side', number: 18, color2: '#f2f2ee', plate: '#ffffff' },
     body: { length: 4.0, width: 1.7, height: 1.48, groundClearance: 0.14, frontOverhang: 0.85, cabinFront: 0.31, cabinRear: 0.95, beltLine: 0.6,
       mass: 1200, weightFront: 0.61, cgHeight: 0.52, inertiaScale: 1, driverSide: 'right', style: 'hatch' },
     wheelbase: 2.55,
@@ -46,6 +48,7 @@ export const CAR_PRESETS: CarParams[] = [
   },
   {
     id: 'fr-sport', name: 'FR Sports', color: '#c8312b',
+    livery: { style: 'stripes', number: 27, color2: '#f4f1ea', plate: '#ffffff' },
     body: { length: 4.27, width: 1.775, height: 1.31, groundClearance: 0.13, frontOverhang: 0.85, cabinFront: 0.38, cabinRear: 0.82, beltLine: 0.63,
       mass: 1270, weightFront: 0.53, cgHeight: 0.46, inertiaScale: 1, driverSide: 'right', style: 'coupe' },
     wheelbase: 2.575,
@@ -62,6 +65,7 @@ export const CAR_PRESETS: CarParams[] = [
   },
   {
     id: 'rally', name: '4WD Rally', color: '#2f7d4a',
+    livery: { style: 'rally', number: 3, color2: '#f0f0ea', plate: '#ffffff' },
     body: { length: 4.3, width: 1.8, height: 1.45, groundClearance: 0.18, frontOverhang: 0.9, cabinFront: 0.33, cabinRear: 0.87, beltLine: 0.6,
       mass: 1300, weightFront: 0.58, cgHeight: 0.52, inertiaScale: 1, driverSide: 'right', style: 'sedan' },
     wheelbase: 2.62,
@@ -78,6 +82,7 @@ export const CAR_PRESETS: CarParams[] = [
   },
   {
     id: 'mr-super', name: 'MR Supercar', color: '#f0b400',
+    livery: { style: 'flash', number: 1, color2: '#14161a', plate: '#ffffff' },
     body: { length: 4.5, width: 1.95, height: 1.2, groundClearance: 0.11, frontOverhang: 1.0, cabinFront: 0.31, cabinRear: 0.64, beltLine: 0.6,
       mass: 1500, weightFront: 0.42, cgHeight: 0.43, inertiaScale: 0.9, driverSide: 'left', style: 'super' },
     wheelbase: 2.65,
@@ -94,6 +99,7 @@ export const CAR_PRESETS: CarParams[] = [
   },
   {
     id: 'suv', name: 'SUV', color: '#7a6a58',
+    livery: { style: 'twotone', number: 0, color2: '#2b2e33', plate: '#ffffff' },
     body: { length: 4.6, width: 1.85, height: 1.72, groundClearance: 0.21, frontOverhang: 0.92, cabinFront: 0.3, cabinRear: 0.97, beltLine: 0.58,
       mass: 1850, weightFront: 0.57, cgHeight: 0.7, inertiaScale: 1, driverSide: 'right', style: 'suv' },
     wheelbase: 2.69,

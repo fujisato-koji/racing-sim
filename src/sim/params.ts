@@ -35,10 +35,24 @@ export interface AxleParams {
   brakeTorque: number;
 }
 
+/** 車体の柄。stripes は中央の 2 本線、side は横の帯、rally は横の斜めの色面とゼッケン、flash は横の斜めの稲妻、twotone は上下の塗り分け */
+export type LiveryStyle = 'none' | 'stripes' | 'side' | 'rally' | 'flash' | 'twotone';
+
+export interface Livery {
+  style: LiveryStyle;
+  /** ゼッケンの番号（0 なら付けない） */
+  number: number;
+  /** 線や色面の色 */
+  color2: string;
+  /** 番号の地の色 */
+  plate: string;
+}
+
 export interface CarParams {
   id: string;
   name: string;
   color: string;
+  livery: Livery;
   body: {
     length: number;
     width: number;
@@ -342,6 +356,12 @@ function axleFields(axle: 'front' | 'rear', name: string): FieldDef[] {
 export const FIELDS: FieldDef[] = [
   { path: 'name', label: 'Name', group: 'Body', kind: 'text' },
   { path: 'color', label: 'Color', group: 'Body', kind: 'color' },
+  { path: 'livery.style', label: 'Livery', group: 'Body', kind: 'select', options: [
+    { value: 'none', label: 'Plain' }, { value: 'stripes', label: 'Racing stripes' }, { value: 'side', label: 'Side stripe' },
+    { value: 'rally', label: 'Rally' }, { value: 'flash', label: 'Flash' }, { value: 'twotone', label: 'Two-tone' }] },
+  { path: 'livery.color2', label: 'Livery color', group: 'Body', kind: 'color' },
+  { path: 'livery.number', label: 'Race number (0 for none)', group: 'Body', kind: 'number', min: 0, max: 99, step: 1 },
+  { path: 'livery.plate', label: 'Number plate color', group: 'Body', kind: 'color' },
   { path: 'body.length', label: 'Length', group: 'Body', kind: 'number', unit: 'm', min: 2.5, max: 6, step: 0.01 },
   { path: 'body.width', label: 'Width', group: 'Body', kind: 'number', unit: 'm', min: 1.2, max: 2.4, step: 0.01 },
   { path: 'body.height', label: 'Height', group: 'Body', kind: 'number', unit: 'm', min: 0.9, max: 2.2, step: 0.01 },

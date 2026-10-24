@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import type { CarParams } from '../sim/params';
+import type { CarGeometry, CarParams, Livery } from '../sim/params';
 import { carGeometry } from '../sim/params';
 import type { Vehicle } from '../sim/vehicle';
 import { buildBody } from './car-body';
@@ -26,6 +26,125 @@ function paintMaterial(color: string) {
   if (quality.level === 'low') return new THREE.MeshStandardMaterial({ color: new THREE.Color(color), metalness: 0.4, roughness: 0.4 });
   // 塗装：金属粉の入った下地に透明な上塗り
   return new THREE.MeshPhysicalMaterial({ color: new THREE.Color(color), metalness: 0.55, roughness: 0.42, clearcoat: 1, clearcoatRoughness: 0.05, envMapIntensity: 1.1 });
+}
+
+const LIVERY_STYLE: Record<Livery['style'], number> = { none: 0, stripes: 1, side: 2, rally: 3, flash: 4, twotone: 5 };
+
+/** ゼッケンの絵（丸か、ラリーの四角の板に番号） */
+function numberTexture(lv: Livery) {
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const g = c.getContext('2d')!;
+  const plate = new THREE.Color(lv.plate);
+  const dark = plate.r * 0.3 + plate.g * 0.59 + plate.b * 0.11 < 0.5;
+  g.fillStyle = lv.plate;
+  g.strokeStyle = dark ? '#f2f2f2' : '#111418';
+  g.lineWidth = 10;
+  g.beginPath();
+  if (lv.style === 'rally') g.roundRect(20, 52, 216, 152, 18);
+  else g.arc(128, 128, 112, 0, Math.PI * 2);
+  g.fill();
+  g.stroke();
+  g.fillStyle = dark ? '#ffffff' : '#111418';
+  const text = String(lv.number);
+  const size = text.length > 1 ? 128 : 150;
+  g.font = `italic 900 ${size}px "Titillium Web", "Arial Black", "Helvetica Neue", sans-serif`;
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillText(text, 128, 136, 200);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  return t;
+}
+
+const LIVERY_COMMON = /* glsl */ `
+varying vec3 vLvP; varying vec3 vLvN;
+uniform vec3 uC2; uniform float uStyle; uniform sampler2D uNum; uniform float uHasNum;
+uniform vec4 uDim; uniform vec4 uDim2; uniform vec3 uDoor; uniform vec3 uRoof;
+float lvBand(float x, float a, float b, float w) { return smoothstep(a - w, a + w, x) * (1.0 - smoothstep(b - w, b + w, x)); }
+`;
+
+const LIVERY_COLOR = /* glsl */ `
+{
+  vec3 P = vLvP; vec3 N = normalize(vLvN);
+  float hw = uDim.x, zf = uDim.y, zr = uDim.z, belt = uDim.w, yb = uDim2.x;
+  float t = clamp((P.z - zf) / (zr - zf), 0.0, 1.0);
+  float side = smoothstep(0.45, 0.7, abs(N.x));
+  float aa = 0.006;
+  float m = 0.0;
+  float ax = abs(P.x);
+  float sb = belt - yb;
+  if (uStyle > 0.5 && uStyle < 1.5) {
+    // 中央の 2 本線（前から屋根を越えて後ろまで）と外の細い線
+    m = (lvBand(ax, 0.045, 0.2 * hw + 0.03, aa) + lvBand(ax, 0.2 * hw + 0.075, 0.2 * hw + 0.1, aa)) * (1.0 - side);
+  } else if (uStyle > 1.5 && uStyle < 2.5) {
+    // 横の帯：窓の下に太い帯と細い線
+    m = (lvBand(P.y, belt - 0.17, belt - 0.07, aa) + lvBand(P.y, belt - 0.25, belt - 0.22, aa)) * side;
+  } else if (uStyle > 2.5 && uStyle < 3.5) {
+    // ラリー：横は前の下から後ろの上へ斜めの色面、ボンネットに片寄せの線
+    float edge = yb + sb * (0.18 + 0.85 * t);
+    m = (1.0 - smoothstep(edge - aa, edge + aa, P.y)) * side;
+    m += lvBand(P.x, -0.36 * hw, -0.18 * hw, aa) * (1.0 - side) * step(P.z, uDim2.z);
+  } else if (uStyle > 3.5 && uStyle < 4.5) {
+    // 稲妻：横に前の下から後ろの上へ斜めの帯、上に中央の太い線
+    float c = yb + sb * (0.22 + 0.62 * t);
+    m = lvBand(P.y, c - 0.07, c + 0.07, aa) * side * step(0.06, t) * step(t, 0.96);
+    m += (1.0 - smoothstep(0.13 * hw - aa, 0.13 * hw + aa, ax)) * (1.0 - side);
+  } else if (uStyle > 4.5) {
+    // 上下の塗り分け：窓から上を 2 色目
+    m = smoothstep(belt + 0.01, belt + 0.04, P.y);
+  }
+  diffuseColor.rgb = mix(diffuseColor.rgb, uC2, clamp(m, 0.0, 1.0));
+  if (uHasNum > 0.5) {
+    // ドア：どちらの側から見ても読めるように（右側は前が右、左側は後ろが右）
+    float dir = P.x > 0.0 ? -1.0 : 1.0;
+    vec2 du = vec2(dir * (P.z - uDoor.x) / uDoor.z + 0.5, (P.y - uDoor.y) / uDoor.z + 0.5);
+    if (side > 0.5 && du.x > 0.0 && du.x < 1.0 && du.y > 0.0 && du.y < 1.0) {
+      vec4 c = texture2D(uNum, du);
+      diffuseColor.rgb = mix(diffuseColor.rgb, c.rgb, c.a);
+    }
+    // 屋根：後ろから見て読めるように（前が上）
+    vec2 ru = vec2(P.x / uRoof.z + 0.5, -(P.z - uRoof.x) / uRoof.z + 0.5);
+    if (N.y > 0.8 && P.y > uRoof.y - 0.25 && ru.x > 0.0 && ru.x < 1.0 && ru.y > 0.0 && ru.y < 1.0) {
+      vec4 c = texture2D(uNum, ru);
+      diffuseColor.rgb = mix(diffuseColor.rgb, c.rgb, c.a);
+    }
+  }
+}
+`;
+
+/**
+ * 塗装に柄を足す。柄は車体の座標（右が +x、上が +y、前が −z）から決めるので、展開図（UV）が要らない。
+ * 線と色面は位置の範囲で、番号は横と屋根に絵を投影して描く
+ */
+function applyLivery(mat: THREE.Material, p: CarParams, g: CarGeometry, num: THREE.Texture | null) {
+  const lv = p.livery;
+  const hw = p.body.width / 2;
+  const doorZ = g.cabinFrontZ + 0.4 * (g.cabinRearZ - g.cabinFrontZ);
+  const doorY = g.bodyBottomY + 0.52 * (g.beltY - g.bodyBottomY);
+  const doorS = Math.min(0.62, (g.beltY - g.bodyBottomY) * 0.9);
+  const roofS = Math.min(0.62, hw * 0.85);
+  const uniforms = {
+    uC2: { value: new THREE.Color(lv.color2) },
+    uStyle: { value: LIVERY_STYLE[lv.style] ?? 0 },
+    uNum: { value: num },
+    uHasNum: { value: num ? 1 : 0 },
+    uDim: { value: new THREE.Vector4(hw, g.bodyFrontZ, g.bodyRearZ, g.beltY) },
+    uDim2: { value: new THREE.Vector4(g.bodyBottomY, g.bodyTopY, g.cabinFrontZ, g.cabinRearZ) },
+    uDoor: { value: new THREE.Vector3(doorZ, doorY, doorS) },
+    uRoof: { value: new THREE.Vector3((g.cabinFrontZ + g.cabinRearZ) / 2 + 0.05, g.bodyTopY, roofS) },
+  };
+  mat.onBeforeCompile = (sh) => {
+    Object.assign(sh.uniforms, uniforms);
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vLvP;\nvarying vec3 vLvN;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvLvP = position;\nvLvN = normal;');
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\n' + LIVERY_COMMON)
+      .replace('#include <color_fragment>', '#include <color_fragment>\n' + LIVERY_COLOR);
+  };
+  mat.customProgramCacheKey = () => 'livery';
 }
 
 function glassMaterial() {
@@ -70,12 +189,18 @@ export class CarMesh {
   private readonly steeringWheel: THREE.Object3D;
   private readonly brakeMat: THREE.MeshStandardMaterial;
   private readonly paint: THREE.Material;
+  /** 鏡や羽根など小さな部品の塗装（柄なし） */
+  private readonly paintPlain: THREE.Material;
+  private readonly numberTex: THREE.Texture | null;
   private readonly glass: THREE.Material;
 
   constructor(readonly p: CarParams) {
     const g = carGeometry(p);
     const b = p.body;
     this.paint = paintMaterial(p.color);
+    this.paintPlain = paintMaterial(p.color);
+    this.numberTex = p.livery && p.livery.number > 0 ? numberTexture(p.livery) : null;
+    if (p.livery) applyLivery(this.paint, p, g, this.numberTex);
     this.glass = glassMaterial();
     const add = <T extends THREE.Object3D>(m: T, shadow = true) => {
       m.traverse((o) => { if (o instanceof THREE.Mesh) { o.castShadow = shadow; o.receiveShadow = true; } });
@@ -169,21 +294,21 @@ export class CarMesh {
       const stalk = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.02, 0.04), plasticMat);
       stalk.position.set(bx + s * 0.04, pr.beltAt(zm) + 0.04, zm);
       add(stalk, false);
-      const shell = new THREE.Mesh(rbox(0.07, 0.07, 0.13, 0.03), this.paint);
+      const shell = new THREE.Mesh(rbox(0.07, 0.07, 0.13, 0.03), this.paintPlain);
       shell.position.set(bx + s * 0.1, pr.beltAt(zm) + 0.07, zm + 0.01);
       add(shell, false);
     }
     // 羽根：小さな縁か、支柱の上の羽根
     if (pr.st.wing === 'lip') {
       const zw = Math.min(zr - 0.06, g.cabinRearZ + 0.05);
-      const lip = new THREE.Mesh(rbox(b.width * 0.72, 0.02, 0.1, 0.008), this.paint);
+      const lip = new THREE.Mesh(rbox(b.width * 0.72, 0.02, 0.1, 0.008), this.paintPlain);
       lip.position.set(0, pr.top(zw) + 0.012, zw);
       lip.rotation.x = 0.12;
       add(lip, false);
     } else if (pr.st.wing === 'wing') {
       const zw = zr - 0.2;
       const yw = pr.top(zw) + 0.2;
-      const wing = new THREE.Mesh(rbox(b.width * 0.88, 0.022, 0.28, 0.01), this.paint);
+      const wing = new THREE.Mesh(rbox(b.width * 0.88, 0.022, 0.28, 0.01), this.paintPlain);
       wing.position.set(0, yw, zw);
       wing.rotation.x = 0.1;
       add(wing);
@@ -273,6 +398,8 @@ export class CarMesh {
       if (o instanceof THREE.Mesh) o.geometry.dispose();
     });
     this.paint.dispose();
+    this.paintPlain.dispose();
+    this.numberTex?.dispose();
     this.glass.dispose();
     this.brakeMat.dispose();
   }

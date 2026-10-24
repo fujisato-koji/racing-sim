@@ -93,7 +93,23 @@ export class BodyProfile {
       const d = Math.abs(z - az), span = r + 0.34;
       if (d < span) w += (this.W / 2) * this.st.flare * Math.cos(((d / span) * Math.PI) / 2) ** 2;
     }
+    // タイヤの上ではフェンダーをタイヤより 12 mm 以上広くする（トレッドやタイヤ幅を変えた車でもはみ出さないように）
+    for (const [az, ax] of [[g.frontAxleZ, p.front], [g.rearAxleZ, p.rear]] as const) {
+      const need = ax.track / 2 + ax.tireWidth / 2 + 0.012;
+      const k = 1 - smooth(ax.tireRadius, ax.tireRadius + 0.3, Math.abs(z - az));
+      if (need > w) w += (need - w) * k;
+    }
     return w;
+  }
+
+  /** タイヤの上にどれだけかかっているか（1 はタイヤの真上、0 は離れている）。フェンダーの縁を外へ張り出すのに使う */
+  archness(z: number) {
+    const g = this.g, p = this.p;
+    let a = 0;
+    for (const [az, r] of [[g.frontAxleZ, p.front.tireRadius], [g.rearAxleZ, p.rear.tireRadius]] as const) {
+      a = Math.max(a, 1 - smooth(r, r + 0.15, Math.abs(z - az)));
+    }
+    return a;
   }
 
   /** 車体の下端（車輪の上は切り欠く） */
@@ -185,10 +201,12 @@ function sampleZ(a: number, b: number, n: number) {
 }
 
 /** 断面（右半分）の制御点：下の中央 → 敷居 → ドアの面 → 肩の線 → ボンネットの縁 → 上の中央 */
-function halfSection(w: number, yb: number, yt: number): [number, number][] {
+/** a はタイヤの上にかかる度合い。タイヤの上では下の縁を外へ張り出し、上から見てタイヤが隠れるようにする */
+function halfSection(w: number, yb: number, yt: number, a = 0): [number, number][] {
   const h = yt - yb;
+  const mix = (lo: number, hi: number) => lo + (hi - lo) * a;
   return [
-    [0, yb], [w * 0.84, yb], [w * 0.92, yb + Math.min(0.04, h * 0.12)], [w * 0.965, yb + h * 0.38],
+    [0, yb], [w * mix(0.84, 0.975), yb], [w * mix(0.92, 0.995), yb + Math.min(0.04, h * 0.12)], [w * mix(0.965, 1), yb + h * 0.38],
     [w, yb + h * 0.7], [w * 0.95, yt - h * 0.07], [w * 0.8, yt], [w * 0.4, yt + 0.012], [0, yt + 0.015],
   ];
 }
@@ -229,7 +247,7 @@ export function buildBody(p: CarParams, g: CarGeometry): BodyMeshes {
   const trimLine = pr.y0 + 0.1;
   for (const z of zs) {
     const w = pr.halfWidth(z), yb = pr.bottom(z), yt = pr.top(z);
-    const right = smoothPolyline(halfSection(w, yb, yt), H);
+    const right = smoothPolyline(halfSection(w, yb, yt, pr.archness(z)), H);
     const loop: [number, number][] = [...right, ...right.slice(1, -1).reverse().map(([x, y]) => [-x, y] as [number, number])];
     M = loop.length;
     for (const [x, y] of loop) pos.push(x, y, z);
