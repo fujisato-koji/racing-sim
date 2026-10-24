@@ -6,6 +6,7 @@ const browser = await chromium.launch({ channel: 'msedge', headless: true, args:
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
 await page.goto('http://localhost:4173/?debug');
 await page.waitForSelector('[data-go]');
+await page.click('[data-prefs]');
 await page.selectOption('[data-quality]', q);
 await page.click('[data-go]');
 await page.click(`[data-tab="${tab}"]`);

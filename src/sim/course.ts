@@ -25,6 +25,10 @@ export interface TrackDef {
   cones?: [number, number][];
   /** オーバルのバンク角 [度]（曲がりと直線） */
   banking?: { turns: number; straights: number };
+  /** バンクの角度をならす長さ [m]（前後それぞれ。決めなければ 60 m） */
+  bankSmooth?: number;
+  /** バンクのあるコースで中心線をならす長さ [m]（前後それぞれ。決めなければ 25 m） */
+  pathSmooth?: number;
   /** 制御点ごとの橋の印（1 が橋） */
   bridges?: number[];
   /** 壁と景色を自動で置く（実在のコース） */
@@ -204,6 +208,63 @@ function buildPath(def: CourseDef, t: TrackDef): { path: PathSample[]; length: n
   const n = Math.max(64, Math.round(length));
   const pts = curve.getSpacedPoints(n).slice(0, n);
   const ds = length / n;
+  // バンクのあるコースは、中心線の小さな横のぶれ（地図の点から来る数 cm〜数十 cm）をならす。
+  // バンクの上では横のぶれが高さの波になり（31° なら横のぶれの 0.6 倍）、高速で車がずっと上下に揺れる。
+  // 縮まないならし方（Taubin：ならしたあと少し戻す）で、曲がりの半径はほぼ変えない
+  if (t.banking) {
+    const w = Math.max(1, Math.round((t.pathSmooth ?? 25) / ds));
+    const avg = (src: { x: number; z: number }[], i: number) => {
+      let sx = 0, sz = 0;
+      for (let k = -w; k <= w; k++) { const q = src[(i + k + n) % n]; sx += q.x; sz += q.z; }
+      return { x: sx / (2 * w + 1), z: sz / (2 * w + 1) };
+    };
+    let cur = pts.map((q) => ({ x: q.x, z: q.z }));
+    for (let it = 0; it < 4; it++) {
+      for (const f of [0.6, -0.62]) {
+        cur = cur.map((q, i) => { const a = avg(cur, i); return { x: q.x + f * (a.x - q.x), z: q.z + f * (a.z - q.z) }; });
+      }
+    }
+    pts.forEach((q, i) => { q.x = cur[i].x; q.z = cur[i].z; });
+  }
+  // 中心線の半径は、道の幅の半分 + 2 m より小さくしない。小さいと内側の縁が後ろへ折り返し、網の目が段になって車が止まる
+  // （地図の点が作る鋭い角。マカオのヘアピンは 3.6 m だった）。きつい所だけを、その近くでならして広げる
+  {
+    const rMin = t.width / 2 + 2, h = Math.max(1, Math.round(3 / ds)), win = Math.max(2, Math.round(6 / ds));
+    for (let it = 0; it < 120; it++) {
+      const bad: number[] = [];
+      for (let i = 0; i < n; i++) {
+        const a = pts[(i - h + n) % n], b = pts[i], c = pts[(i + h) % n];
+        const ax = b.x - a.x, az = b.z - a.z, cx = c.x - b.x, cz = c.z - b.z;
+        const ang = Math.abs(Math.atan2(ax * cz - az * cx, ax * cx + az * cz));
+        if (ang / (h * ds) > 1 / rMin) bad.push(i);
+      }
+      if (bad.length === 0) break;
+      const next = pts.map((q) => ({ x: q.x, z: q.z }));
+      for (const i of bad) {
+        for (let k = -win; k <= win; k++) {
+          const j = (i + k + n) % n;
+          let sx = 0, sz = 0;
+          for (let m = -win; m <= win; m++) { const q = pts[(j + m + n) % n]; sx += q.x; sz += q.z; }
+          const f = 0.5 * (1 - Math.abs(k) / (win + 1));
+          next[j].x += f * (sx / (2 * win + 1) - next[j].x);
+          next[j].z += f * (sz / (2 * win + 1) - next[j].z);
+        }
+      }
+      pts.forEach((q, i) => { q.x = next[i].x; q.z = next[i].z; });
+      // ならすと点の間隔が偏るので、等しい間隔に並べ直す
+      const cum = [0];
+      for (let i = 1; i <= n; i++) { const a = pts[i - 1], b = pts[i % n]; cum.push(cum[i - 1] + Math.hypot(b.x - a.x, b.z - a.z)); }
+      const total = cum[n], old = pts.map((q) => ({ x: q.x, z: q.z }));
+      let k = 0;
+      for (let i = 0; i < n; i++) {
+        const s0 = (i / n) * total;
+        while (k < n - 1 && cum[k + 1] < s0) k++;
+        const u = (s0 - cum[k]) / Math.max(1e-9, cum[k + 1] - cum[k]);
+        const a = old[k], b = old[(k + 1) % n];
+        pts[i].x = a.x + (b.x - a.x) * u; pts[i].z = a.z + (b.z - a.z) * u;
+      }
+    }
+  }
   const path: PathSample[] = pts.map((p, i) => ({ s: i * ds, x: p.x, y: 0, z: p.z, tx: 0, tz: 0, lx: 0, lz: 0, k: 0, bank: 0, bridge: false, surface: t.surface }));
   for (let i = 0; i < n; i++) {
     const a = path[(i - 1 + n) % n], b = path[(i + 1) % n];
@@ -231,7 +292,7 @@ function buildPath(def: CourseDef, t: TrackDef): { path: PathSample[]; length: n
       path[i].k = sum / (2 * w + 1);
     }
   }
-  // バンク：曲がりのきつさに合わせて傾け、前後 30 m でならす。外側（主に曲がる向きの反対）が高い
+  // バンク：曲がりのきつさに合わせて傾け、前後 60 m でならす（実際のオーバルも曲がりの入口で長くかけて傾きが変わる）。外側（主に曲がる向きの反対）が高い
   if (t.banking) {
     const meanK = path.reduce((a, p) => a + p.k, 0) / n;
     const sign = meanK >= 0 ? 1 : -1;
@@ -239,7 +300,7 @@ function buildPath(def: CourseDef, t: TrackDef): { path: PathSample[]; length: n
       const tt = smooth((Math.abs(p.k) - 1 / 2000) / (1 / 350 - 1 / 2000));
       return sign * ((t.banking!.straights + (t.banking!.turns - t.banking!.straights) * tt) * Math.PI) / 180;
     });
-    const w = Math.max(1, Math.round(30 / ds));
+    const w = Math.max(1, Math.round((t.bankSmooth ?? 60) / ds));
     for (let i = 0; i < n; i++) {
       let sum = 0;
       for (let j = -w; j <= w; j++) sum += raw[(i + j + n) % n];
@@ -487,15 +548,22 @@ export function buildCourse(def: CourseDef, terrain?: TerrainSampler, real?: Rea
   let road: CourseData['road'] = null;
   let shoulder: CourseData['shoulder'] = null;
   if (t) {
-    const rv = new Float32Array(n * 2 * 3), uv = new Float32Array(n * 2 * 2);
+    // 道は横を 2.5 m 以下の帯に分ける。幅いっぱいの細長い三角形（縦 1 m × 横 12〜18 m）だと、車輪の当たりが乱れて車が細かく揺れる
+    // （傾いた平らな面で 0.106 g が 0.016 g になる。test/ride-rough.ts）
+    const M = Math.max(1, Math.ceil(width / 2.5)), M1 = M + 1;
+    const rv = new Float32Array(n * M1 * 3), uv = new Float32Array(n * M1 * 2);
     const sv = new Float32Array(n * 4 * 3);
     const e = width / 2;
     for (let i = 0; i < n; i++) {
       const p = path[i];
       const tb = Math.tan(p.bank);
       const yl = p.y - e * tb, yr = p.y + e * tb;
-      rv.set([p.x + p.lx * e, yl, p.z + p.lz * e, p.x - p.lx * e, yr, p.z - p.lz * e], i * 6);
-      uv.set([0, p.s / 8, 1, p.s / 8], i * 4);
+      // 左の縁（+e）から右の縁（−e）へ
+      for (let j = 0; j <= M; j++) {
+        const o = e - (2 * e * j) / M;
+        rv.set([p.x + p.lx * o, p.y - o * tb, p.z + p.lz * o], (i * M1 + j) * 3);
+        uv.set([j / M, p.s / 8], (i * M1 + j) * 2);
+      }
       const o = e + SHOULDER;
       sv.set([p.x + p.lx * o, yl - SHOULDER * tb - 0.12, p.z + p.lz * o, p.x + p.lx * e, yl, p.z + p.lz * e,
         p.x - p.lx * e, yr, p.z - p.lz * e, p.x - p.lx * o, yr + SHOULDER * tb - 0.12, p.z - p.lz * o], i * 12);
@@ -504,11 +572,13 @@ export function buildCourse(def: CourseDef, terrain?: TerrainSampler, real?: Rea
     const si: number[] = [];
     for (let i = 0; i < n; i++) {
       const j = (i + 1) % n;
-      const a = i * 2, b = i * 2 + 1, c = j * 2, d = j * 2 + 1;
       let l = roadBy.get(path[i].surface);
       if (!l) { l = []; roadBy.set(path[i].surface, l); }
-      // 上から見て反時計回り（上向きの面）
-      l.push(a, b, c, b, d, c);
+      for (let k = 0; k < M; k++) {
+        const a = i * M1 + k, b = a + 1, c = j * M1 + k, d = c + 1;
+        // 上から見て反時計回り（上向きの面）
+        l.push(a, b, c, b, d, c);
+      }
       const A = i * 4, C = j * 4;
       si.push(A, A + 1, C, A + 1, C + 1, C, A + 2, A + 3, C + 2, A + 3, C + 3, C + 2);
     }

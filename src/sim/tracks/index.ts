@@ -46,6 +46,22 @@ const ORDER: TrackJson[] = [
   indianapolis, daytona, talladega, charlotte, bristol,
 ] as TrackJson[];
 
+/** 周回の値を前後 w 点で 2 回ならす（三角の重み） */
+function smoothCyclic(a: number[], w: number) {
+  const n = a.length;
+  let cur = a.slice();
+  for (let pass = 0; pass < 2; pass++) {
+    const out = new Array<number>(n);
+    for (let i = 0; i < n; i++) {
+      let s = 0;
+      for (let k = -w; k <= w; k++) s += cur[((i + k) % n + n) % n];
+      out[i] = s / (2 * w + 1);
+    }
+    cur = out;
+  }
+  return cur;
+}
+
 const TYPE_NAME: Record<string, string> = { international: 'Grand Prix', technical: 'Technical', street: 'Street', oval: 'Oval' };
 
 function toCourse(j: TrackJson): CourseDef {
@@ -55,8 +71,11 @@ function toCourse(j: TrackJson): CourseDef {
   const cum: number[] = [0];
   for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
   const total = cum[cum.length - 1] + Math.hypot(pts[0][0] - pts[pts.length - 1][0], pts[0][1] - pts[pts.length - 1][1]);
-  const elevation: [number, number][] = j.elev.map((e, i) => [cum[i] / total, e]);
   const street = j.type === 'street', oval = j.type === 'oval';
+  // オーバルは実際には平らに舗装されているので、標高データの 20〜100 m の小さな波（約 0.2 m）をならす。
+  // 250 km/h ではこの波が車をずっと上下に揺らす（test/ride-rough.ts）。大きな形（直線と曲がりの高さの違い）は残す
+  const elev = oval ? smoothCyclic(j.elev, Math.round(90 / (total / j.elev.length))) : j.elev;
+  const elevation: [number, number][] = elev.map((e, i) => [cum[i] / total, e]);
   const rise = Math.max(...j.elev) - Math.min(...j.elev);
   return {
     id: j.id,
