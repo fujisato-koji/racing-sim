@@ -96,3 +96,55 @@ textarea { resize: vertical; }
 @media (max-width: 900px) {
   .panel.wide, .panel.settings-panel { padding: 16px; }
 }
+
+/* 画面のハンドル（実際のタイヤの切れ角 × ステアリングギア比で回る） */
+.hud-wheel { position: absolute; left: 50%; bottom: 14px; width: 96px; margin-left: -48px; text-align: center; opacity: 0.85; }
+.hud-wheel svg { width: 96px; height: 96px; display: block; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.6)); }
+.hud-wheel-deg { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.prefs { display: grid; gap: 8px; margin-bottom: 14px; }
+.prefs input[type=range] { width: 100%; }
+
+/* スマホ */
+#app { position: fixed; inset: 0; }
+body.touch, body.touch #stage, .touch-ui { touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+body.touch .panel { touch-action: pan-y; }
+/* 縦向きのまま持っているときは、全体を 90° 回して横向きに描く */
+body.forced-landscape #app { inset: auto; top: 0; left: 0; width: 100vh; height: 100vw; transform-origin: top left; transform: rotate(90deg) translateY(-100%); }
+body.forced-landscape #stage, body.forced-landscape #overlay { position: absolute; }
+
+.touch-ui { position: absolute; inset: 0; pointer-events: none; }
+.touch-ui > * { pointer-events: auto; }
+.touch-buttons { position: absolute; left: 10px; top: calc(env(safe-area-inset-top, 0px) + 112px); display: flex; gap: 6px; }
+.touch-buttons button { padding: 6px 10px; font-size: 13px; background: rgba(0,0,0,0.45); }
+.touch-buttons button.off { opacity: 0.45; text-decoration: line-through; }
+.pedal { position: absolute; bottom: 10px; display: flex; align-items: center; justify-content: center; border-radius: 14px;
+  border: 2px solid rgba(255,255,255,0.35); background: rgba(0,0,0,0.28); color: rgba(255,255,255,0.85); font-weight: bold; font-size: 15px; }
+.pedal.on { background: rgba(255,176,0,0.55); border-color: var(--accent); color: #1a1200; }
+.pedal.brake { left: calc(env(safe-area-inset-left, 0px) + 10px); width: 17%; height: 36%; }
+.pedal.throttle { right: calc(env(safe-area-inset-right, 0px) + 10px); width: 17%; height: 46%; }
+.steer-buttons { display: none; }
+.touch-ui:not(.has-tilt) .steer-buttons { display: block; }
+.touch-ui > .steer-buttons { pointer-events: none; }
+.steer-buttons { position: absolute; inset: 0; pointer-events: none; }
+.steer-buttons .pedal.small { width: 11%; height: 22%; bottom: calc(36% + 20px); pointer-events: auto; }
+.steer-buttons .pedal.small:first-child { left: calc(env(safe-area-inset-left, 0px) + 10px); }
+.steer-buttons .pedal.small:last-child { left: calc(env(safe-area-inset-left, 0px) + 10px + 12%); }
+
+/* スマホでは計器を小さく、ペダルと重ならない位置へ */
+body.touch .hud-info { font-size: 12px; line-height: 1.45; padding: 6px 10px; min-width: 0; top: calc(env(safe-area-inset-top, 0px) + 8px); left: calc(env(safe-area-inset-left, 0px) + 10px); }
+body.touch .hud-big { font-size: 24px; }
+body.touch .hud-map { width: 130px; height: 130px; top: 8px; right: calc(env(safe-area-inset-right, 0px) + 10px); }
+body.touch .hud-meter { right: auto; left: 50%; bottom: 8px; width: 210px; margin-left: 10px; padding: 6px 10px; }
+body.touch .hud-speed { font-size: 34px; min-width: 70px; }
+body.touch .hud-gear { font-size: 28px; }
+body.touch .hud-wheel { left: 50%; margin-left: -120px; bottom: 8px; width: 88px; }
+body.touch .hud-wheel svg { width: 80px; height: 80px; margin: 0 auto; }
+body.touch .hud-help { left: 50%; right: auto; transform: translateX(-50%); bottom: auto; top: 46%; font-size: 13px; max-width: 60%; text-align: center; }
+body.touch .buttons.vertical { flex-direction: row; flex-wrap: wrap; min-width: 0; }
+body.touch .buttons.vertical button { flex: 1 1 40%; }
+body.touch .hud-message { font-size: 48px; }
+body.touch .panel { padding: 14px 16px; max-height: calc(100% - 16px); }
+body.touch #overlay { padding: 8px; }
+body.touch h1 { font-size: 30px; }
+body.touch .lead { font-size: 14px; }
+body.touch .panel.settings-panel { height: calc(100% - 16px); }

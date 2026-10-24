@@ -78,6 +78,8 @@ export interface CarParams {
     maxAngleDeg: number;
     /** アッカーマン率 0〜1 */
     ackermann: number;
+    /** ステアリングギア比（ハンドルの回転角 ÷ タイヤの切れ角） */
+    ratio: number;
   };
   engine: {
     /** [回転数 rpm, トルク N·m] の並び */
@@ -88,6 +90,8 @@ export interface CarParams {
     /** レブリミット付近のエンジンブレーキ [N·m] */
     engineBrake: number;
     orientation: 'longitudinal' | 'transverse';
+    /** 気筒数（エンジン音の高さに使う） */
+    cylinders: number;
   };
   gearbox: {
     ratios: number[];
@@ -226,6 +230,8 @@ export interface Derived {
   powerToWeight: number;
   topSpeedKmh: number;
   stabilityFactor: number;
+  /** ハンドルを端から端まで回す回転数 */
+  lockToLock: number;
   warnings: string[];
 }
 
@@ -280,6 +286,7 @@ export function computeDerived(p: CarParams): Derived {
     powerToWeight: pk.peakPower / 1000 / (p.body.mass / 1000),
     topSpeedKmh: estimateTopSpeed(p) * 3.6,
     stabilityFactor,
+    lockToLock: (2 * p.steer.maxAngleDeg * p.steer.ratio) / 360,
     warnings,
   };
 }
@@ -352,11 +359,13 @@ export const FIELDS: FieldDef[] = [
   { path: 'tire.relaxLength', label: '緩和長（横）', group: 'タイヤの摩擦', kind: 'number', unit: 'm', min: 0.1, max: 1.5, step: 0.01 },
   { path: 'steer.maxAngleDeg', label: '最大切れ角', group: '操舵', kind: 'number', unit: '°', min: 10, max: 50, step: 0.5 },
   { path: 'steer.ackermann', label: 'アッカーマン率', group: '操舵', kind: 'number', unit: '%', min: 0, max: 1, step: 0.05, scale: 100 },
+  { path: 'steer.ratio', label: 'ステアリングギア比', group: '操舵', kind: 'number', min: 6, max: 30, step: 0.1 },
   { path: 'engine.torqueCurve', label: 'トルク曲線（rpm:N·m）', group: 'エンジン', kind: 'curve' },
   { path: 'engine.idleRpm', label: 'アイドル回転数', group: 'エンジン', kind: 'number', unit: 'rpm', min: 500, max: 2000, step: 50 },
   { path: 'engine.redlineRpm', label: 'レブリミット', group: 'エンジン', kind: 'number', unit: 'rpm', min: 3000, max: 20000, step: 100 },
   { path: 'engine.inertia', label: '回転部の慣性', group: 'エンジン', kind: 'number', unit: 'kg·m²', min: 0.03, max: 1.0, step: 0.01 },
   { path: 'engine.engineBrake', label: 'エンジンブレーキ', group: 'エンジン', kind: 'number', unit: 'N·m', min: 0, max: 300, step: 5 },
+  { path: 'engine.cylinders', label: '気筒数', group: 'エンジン', kind: 'number', min: 1, max: 16, step: 1 },
   { path: 'engine.orientation', label: '搭載の向き', group: 'エンジン', kind: 'select', options: [{ value: 'longitudinal', label: '縦置き' }, { value: 'transverse', label: '横置き' }] },
   { path: 'gearbox.ratios', label: 'ギア比（1速から）', group: '変速機', kind: 'list' },
   { path: 'gearbox.reverse', label: '後退のギア比', group: '変速機', kind: 'number', min: 1, max: 6, step: 0.01 },

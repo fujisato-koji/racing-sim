@@ -9,7 +9,7 @@ const BRAKE = ['ArrowDown', 'KeyS', 'Space'];
 export class KeyboardInput {
   private readonly down = new Set<string>();
   private readonly c: Controls = { steer: 0, throttle: 0, brake: 0 };
-  onAction: (action: 'camera' | 'reset' | 'pause' | 'mirror' | 'map') => void = () => {};
+  onAction: (action: 'camera' | 'reset' | 'pause' | 'mirror' | 'map' | 'sound') => void = () => {};
 
   constructor(target: Window = window) {
     target.addEventListener('keydown', (e) => {
@@ -21,6 +21,7 @@ export class KeyboardInput {
       if (e.code === 'Escape' || e.code === 'KeyP') this.onAction('pause');
       if (e.code === 'KeyM') this.onAction('mirror');
       if (e.code === 'KeyN') this.onAction('map');
+      if (e.code === 'KeyV') this.onAction('sound');
     });
     target.addEventListener('keyup', (e) => this.down.delete(e.code));
     target.addEventListener('blur', () => this.down.clear());

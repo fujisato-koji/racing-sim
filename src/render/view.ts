@@ -4,6 +4,7 @@ import type { Session } from '../game/session';
 import type { CarParams } from '../sim/params';
 import { carGeometry } from '../sim/params';
 import type { Vehicle } from '../sim/vehicle';
+import { isTouch, onLayoutChange, viewSize } from '../ui/layout';
 import { CarMesh } from './car-mesh';
 import { CourseMesh } from './course-mesh';
 
@@ -38,7 +39,8 @@ export class GameView {
 
   constructor(container: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    // スマホは描く画素を減らして軽くする
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, isTouch ? 1.5 : 2));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -51,7 +53,7 @@ export class GameView {
     this.scene.add(new THREE.HemisphereLight(0xcfe4ff, 0x56603f, 1.1));
     this.sun = new THREE.DirectionalLight(0xfff2dd, 2.6);
     this.sun.castShadow = true;
-    this.sun.shadow.mapSize.set(2048, 2048);
+    this.sun.shadow.mapSize.set(isTouch ? 1024 : 2048, isTouch ? 1024 : 2048);
     const sc = this.sun.shadow.camera;
     sc.left = -70; sc.right = 70; sc.top = 70; sc.bottom = -70; sc.near = 1; sc.far = 400;
     this.sun.shadow.bias = -0.0004;
@@ -76,12 +78,12 @@ export class GameView {
     floor.receiveShadow = true;
     this.garage.add(floor);
 
-    window.addEventListener('resize', () => this.resize());
+    onLayoutChange(() => this.resize());
     this.resize();
   }
 
   resize() {
-    const w = window.innerWidth, h = window.innerHeight;
+    const { w, h } = viewSize();
     this.renderer.setSize(w, h);
     this.mainCam.aspect = w / h;
     this.mainCam.updateProjectionMatrix();

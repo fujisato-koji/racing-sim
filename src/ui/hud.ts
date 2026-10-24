@@ -2,6 +2,8 @@
 import type { Session } from '../game/session';
 import type { CourseData } from '../sim/course';
 import { SURFACES } from '../sim/surfaces';
+import { steeringWheelAngle } from '../render/car-mesh';
+import { isTouch } from './layout';
 
 export function formatTime(t: number) {
   if (!isFinite(t) || t < 0) return '--:--.--';
@@ -20,6 +22,9 @@ export class Hud {
   private readonly message: HTMLElement;
   private readonly help: HTMLElement;
   private readonly map: HTMLCanvasElement;
+  private readonly wheel: HTMLElement;
+  private readonly wheelSvg: SVGElement;
+  private readonly wheelDeg: HTMLElement;
   private mapBase: HTMLCanvasElement | null = null;
   private mapScale = 1;
   private mapX0 = 0;
@@ -34,7 +39,15 @@ export class Hud {
       <div class="hud-info"></div>
       <canvas class="hud-map" width="440" height="440"></canvas>
       <div class="hud-message"></div>
-      <div class="hud-help">← → ハンドル　↑ アクセル　↓ ブレーキ（止まって押し続けると後退）<br>C 視点　M ミラー　N 地図　R 戻す　Esc 一時停止</div>
+      <div class="hud-help">${isTouch
+        ? 'スマホを左右に回してハンドル　右下アクセル　左下ブレーキ（止まって押し続けると後退）'
+        : '← → ハンドル　↑ アクセル　↓ ブレーキ（止まって押し続けると後退）<br>C 視点　M ミラー　N 地図　R 戻す　V 音　Esc 一時停止'}</div>
+      <div class="hud-wheel"><svg viewBox="-50 -50 100 100">
+        <circle r="44" fill="none" stroke="#e8ecf2" stroke-width="7"/>
+        <circle r="10" fill="#e8ecf2"/>
+        <path d="M -42 4 L -10 2 M 42 4 L 10 2 M 0 10 L 0 42" stroke="#e8ecf2" stroke-width="7" stroke-linecap="round"/>
+        <path d="M -6 -44 L 6 -44" stroke="#ffb000" stroke-width="7" stroke-linecap="round"/>
+      </svg><div class="hud-wheel-deg"></div></div>
       <div class="hud-meter">
         <div class="hud-surface"></div>
         <div class="hud-rpm"><div class="hud-rpm-bar"></div></div>
@@ -52,6 +65,9 @@ export class Hud {
     this.message = q('.hud-message');
     this.help = q('.hud-help');
     this.map = q('.hud-map') as HTMLCanvasElement;
+    this.wheel = q('.hud-wheel');
+    this.wheelSvg = this.root.querySelector('.hud-wheel svg') as SVGElement;
+    this.wheelDeg = q('.hud-wheel-deg');
   }
 
   set visible(v: boolean) { this.root.style.display = v ? '' : 'none'; }
@@ -105,10 +121,15 @@ export class Hud {
     this.helpTime = 0;
   }
 
-  update(s: Session, dt: number) {
+  update(s: Session, dt: number, cockpit: boolean) {
     const pr = s.player;
     if (!pr) return;
     const v = pr.vehicle;
+    // ハンドル：実際のタイヤの切れ角 × ステアリングギア比（運転席視点では車の中のハンドルが見えるので出さない）
+    this.wheel.style.display = cockpit ? 'none' : '';
+    const deg = (steeringWheelAngle(v) * 180) / Math.PI;
+    this.wheelSvg.style.transform = `rotate(${deg.toFixed(1)}deg)`;
+    this.wheelDeg.textContent = `${Math.abs(deg) < 0.5 ? 0 : Math.round(deg)}°`;
     this.speed.textContent = Math.abs(v.speed * 3.6).toFixed(0);
     this.gear.textContent = v.gear < 0 ? 'R' : String(v.gear);
     const frac = Math.min(1, v.rpm / v.p.engine.redlineRpm);

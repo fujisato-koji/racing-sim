@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import type { CarParams } from '../sim/params';
-import { DEG, carGeometry } from '../sim/params';
+import { carGeometry } from '../sim/params';
 import type { Vehicle } from '../sim/vehicle';
 
 const tireMat = new THREE.MeshStandardMaterial({ color: 0x161616, roughness: 0.9 });
@@ -45,6 +45,11 @@ function beam(a: THREE.Vector3, b: THREE.Vector3, r: number, mat: THREE.Material
   m.position.copy(a).add(b).multiplyScalar(0.5);
   m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize());
   return m;
+}
+
+/** ハンドルの回転角 [rad]（右に切ると正）。実際の前輪の切れ角の平均 × ステアリングギア比 */
+export function steeringWheelAngle(v: Vehicle) {
+  return ((v.wheels[0].steer + v.wheels[1].steer) / 2) * v.p.steer.ratio;
 }
 
 export class CarMesh {
@@ -159,7 +164,8 @@ export class CarMesh {
       m.rotation.y = -w.steer;
       (m.userData.spin as THREE.Object3D).rotation.x = -w.spin;
     }
-    this.steeringWheel.rotation.z = -v.controls.steer * this.p.steer.maxAngleDeg * DEG * 14;
+    // ハンドルの回転 = 実際のタイヤの切れ角 × ステアリングギア比
+    this.steeringWheel.rotation.z = -steeringWheelAngle(v);
     this.brakeMat.emissiveIntensity = v.brakeOut > 0.05 ? 1.6 : 0.2;
   }
 

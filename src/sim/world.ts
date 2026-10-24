@@ -25,16 +25,43 @@ export interface Prop {
   body: RAPIER.RigidBody;
 }
 
+/** 音のための衝突の記録（大きな接触力が出たとき） */
+export interface Impact {
+  x: number;
+  y: number;
+  z: number;
+  /** 接触力 [N] */
+  force: number;
+  /** ぶつかった車（どちらも車でなければ null） */
+  vehicle: Vehicle | null;
+  /** 相手が小物（コーン、タイヤ）か */
+  prop: PropKind | null;
+}
+
+type Owner = { vehicle: Vehicle } | { prop: Prop };
+
 export class PhysicsWorld {
   readonly world: RAPIER.World;
   readonly surfaceOf = new Map<number, Surface>();
   readonly vehicles: Vehicle[] = [];
   readonly props: Prop[] = [];
+  /** まだ音にしていない衝突 */
+  readonly impacts: Impact[] = [];
+  private readonly events: RAPIER.EventQueue;
+  private readonly owners = new Map<number, Owner>();
   time = 0;
 
   constructor(readonly R: Rapier, readonly dt = 1 / 240) {
     this.world = new R.World({ x: 0, y: -G, z: 0 });
     this.world.timestep = dt;
+    this.events = new R.EventQueue(true);
+  }
+
+  /** 衝突の力を知らせる衝突形状として登録する */
+  watch(c: RAPIER.Collider, owner: Owner, threshold: number) {
+    c.setActiveEvents(this.R.ActiveEvents.CONTACT_FORCE_EVENTS);
+    c.setContactForceEventThreshold(threshold);
+    this.owners.set(c.handle, owner);
   }
 
   private fixedBody() {
@@ -68,12 +95,14 @@ export class PhysicsWorld {
 
   addCone(x: number, y: number, z: number) {
     const body = this.world.createRigidBody(this.R.RigidBodyDesc.dynamic().setTranslation(x, y + 0.36, z).setCcdEnabled(true));
-    this.world.createCollider(this.R.ColliderDesc.cone(0.33, 0.16).setMass(2.2).setTranslation(0, 0.03, 0)
+    const c = this.world.createCollider(this.R.ColliderDesc.cone(0.33, 0.16).setMass(2.2).setTranslation(0, 0.03, 0)
       .setCollisionGroups(GROUPS.prop).setFriction(0.6).setRestitution(0.2), body);
     this.world.createCollider(this.R.ColliderDesc.cuboid(0.19, 0.02, 0.19).setMass(0.8).setTranslation(0, -0.32, 0)
       .setCollisionGroups(GROUPS.prop).setFriction(0.7).setRestitution(0.1), body);
     body.sleep();
-    this.props.push({ kind: 'cone', body });
+    const prop: Prop = { kind: 'cone', body };
+    this.props.push(prop);
+    this.watch(c, { prop }, 400);
   }
 
   /** 積んだタイヤを1本ずつ別の物体として置く */
@@ -81,16 +110,26 @@ export class PhysicsWorld {
     for (let i = 0; i < count; i++) {
       const body = this.world.createRigidBody(this.R.RigidBodyDesc.dynamic().setTranslation(x, y + 0.11 + i * 0.225, z)
         .setCcdEnabled(true).setLinearDamping(0.05).setAngularDamping(0.2));
-      this.world.createCollider(this.R.ColliderDesc.cylinder(0.11, 0.32).setMass(9)
+      const c = this.world.createCollider(this.R.ColliderDesc.cylinder(0.11, 0.32).setMass(9)
         .setCollisionGroups(GROUPS.prop).setFriction(0.9).setRestitution(0.25), body);
       body.sleep();
-      this.props.push({ kind: 'tire', body });
+      const prop: Prop = { kind: 'tire', body };
+      this.props.push(prop);
+      this.watch(c, { prop }, 3000);
     }
   }
 
   step() {
     for (const v of this.vehicles) v.step(this.dt);
-    this.world.step();
+    this.world.step(this.events);
+    this.events.drainContactForceEvents((e) => {
+      const a = this.owners.get(e.collider1()), b = this.owners.get(e.collider2());
+      const car = (a && 'vehicle' in a ? a.vehicle : null) ?? (b && 'vehicle' in b ? b.vehicle : null);
+      const prop = (a && 'prop' in a ? a.prop : null) ?? (b && 'prop' in b ? b.prop : null);
+      const at = car ? car.pos : prop ? prop.body.translation() : null;
+      if (!at || this.impacts.length > 64) return;
+      this.impacts.push({ x: at.x, y: at.y, z: at.z, force: e.totalForceMagnitude(), vehicle: car, prop: prop ? prop.kind : null });
+    });
     for (const v of this.vehicles) v.afterStep();
     this.time += this.dt;
   }

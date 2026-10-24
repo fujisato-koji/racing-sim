@@ -142,7 +142,7 @@ export class Vehicle {
       const c = R.ColliderDesc.roundCuboid(Math.max(0.01, hx - rad), Math.max(0.01, hy - rad), Math.max(0.01, hz - rad), rad)
         .setTranslation(cx, cy, cz).setDensity(0).setFriction(0.4).setRestitution(0.1)
         .setCollisionGroups(GROUPS.chassis);
-      pw.world.createCollider(c, this.body);
+      pw.watch(pw.world.createCollider(c, this.body), { vehicle: this }, 12000);
     };
     box(bd.width / 2, (g.beltY - g.bodyBottomY) / 2, bd.length / 2, 0, (g.beltY + g.bodyBottomY) / 2, (g.bodyFrontZ + g.bodyRearZ) / 2);
     box(bd.width * 0.43, (g.bodyTopY - g.beltY) / 2, (g.cabinRearZ - g.cabinFrontZ) / 2, 0, (g.bodyTopY + g.beltY) / 2, (g.cabinFrontZ + g.cabinRearZ) / 2);
@@ -166,7 +166,7 @@ export class Vehicle {
         .setRotation({ x: ROT_Z90.x, y: ROT_Z90.y, z: ROT_Z90.z, w: ROT_Z90.w })
         .setDensity(0).setFriction(0.8).setRestitution(0.1)
         .setCollisionGroups(GROUPS.wheel);
-      pw.world.createCollider(wc, this.body);
+      pw.watch(pw.world.createCollider(wc, this.body), { vehicle: this }, 4000);
       this.wheels.push({
         front, side, radius: ax.tireRadius, width: ax.tireWidth, mount, travel: ax.travel,
         dMax: ax.travel + sag, spring: ax.spring, bump: ax.damperBump, rebound: ax.damperRebound,
