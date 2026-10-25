@@ -6,7 +6,7 @@ import type { VoiceMode } from './audio/voice';
 import { Voice } from './audio/voice';
 import { Commentator } from './game/commentary';
 import { CoDriver } from './game/codriver';
-import { YawSteer, roadInfo } from './game/steer-assist';
+import { YawSteer } from './game/steer-assist';
 import { GamepadInput } from './game/gamepad';
 import { KeyboardInput } from './game/input';
 import { TouchControls } from './game/touch';
@@ -69,12 +69,17 @@ function drawThumb(cv: HTMLCanvasElement, c: CourseDef, color = '#e8ecf2') {
 }
 
 const PREFS = 'racing-sim.prefs.v1';
-/** ハンドルの補助：follow は道に沿って曲がり、キーや傾きは道の上での位置を動かす。yaw は曲がり具合で操る。off は切れ角を直接 */
-type SteerAssist = 'follow' | 'yaw' | 'off';
-interface Prefs { volume: number; muted: boolean; tiltRange: number; centerSoft: number; manual: boolean; quality: QualityPref; keySteer: number; voice: VoiceMode; duck: number; codriver: boolean; assist: SteerAssist }
+/** ハンドルの補助：yaw は曲がり具合で操る（離すとまっすぐを求める）。off は切れ角を直接 */
+type SteerAssist = 'yaw' | 'off';
+interface Prefs { volume: number; muted: boolean; tiltRange: number; centerSoft: number; manual: boolean; quality: QualityPref; keySteer: number; voice: VoiceMode; duck: number; codriver: boolean; assist: SteerAssist; assistSet: boolean }
 function loadPrefs(): Prefs {
-  const d: Prefs = { volume: 0.7, muted: false, tiltRange: 40, centerSoft: 1, manual: false, quality: 'auto', keySteer: 1, voice: 'all', duck: 0.4, codriver: true, assist: 'follow' };
-  try { return { ...d, ...(JSON.parse(localStorage.getItem(PREFS) ?? '{}') as Partial<Prefs>) }; } catch { return d; }
+  const d: Prefs = { volume: 0.7, muted: false, tiltRange: 40, centerSoft: 1, manual: false, quality: 'auto', keySteer: 1, voice: 'all', duck: 0.4, codriver: true, assist: 'yaw', assistSet: false };
+  try {
+    const p = { ...d, ...(JSON.parse(localStorage.getItem(PREFS) ?? '{}') as Partial<Prefs>) };
+    // ハンドルの補助を自分で選んでいなければ、今の標準（Stability only）にする。なくした Follow the road が残っていても Stability only に
+    if (!p.assistSet || (p.assist as string) === 'follow') p.assist = d.assist;
+    return p;
+  } catch { return d; }
 }
 function savePrefs(p: Prefs) {
   try { localStorage.setItem(PREFS, JSON.stringify(p)); } catch { /* 保存できなくても動く */ }
@@ -723,9 +728,8 @@ class App {
           // キーボードとスマホのどちらでも。キーでハンドルを切っているときはキーを優先
           const k = this.input.update(dt, v.speed), t = this.touch.update(dt, v.speed), g = this.pad;
           let steer = Math.abs(k.steer) > 0.01 ? k.steer : g.active && Math.abs(g.steer) > 0 ? g.steer : t.steer;
-          // 補助：入力を曲がり具合の求めとして、切れ角を車の状態から決める（道に沿う設定なら、道の曲がりも足す）
-          const sess = this.session;
-          if (this.prefs.assist !== 'off') steer = this.yawSteer.update(dt, steer, v, this.prefs.assist === 'follow' && sess?.player ? roadInfo(sess.course, sess.player.idx, v) : null);
+          // 補助：入力を曲がり具合の求めとして、切れ角を車の状態から決める
+          if (this.prefs.assist !== 'off') steer = this.yawSteer.update(dt, steer, v);
           return { steer, throttle: Math.max(k.throttle, t.throttle, g.throttle), brake: Math.max(k.brake, t.brake, g.brake) };
         });
       if (this.session.player) this.session.player.vehicle.manual = this.prefs.manual;
@@ -788,7 +792,7 @@ class App {
       <label class="field"><span class="field-name">Voice</span><select data-voice>${(['all', 'menu', 'off'] as const).map((v) => `<option value="${v}" ${this.prefs.voice === v ? 'selected' : ''}>${{ all: 'Menus and race commentary', menu: 'Menus only', off: 'Off' }[v]}</option>`).join('')}</select><span></span></label>
       <label class="field"><span class="field-name">Co-driver calls (corners ahead)</span><input type="checkbox" ${this.prefs.codriver ? 'checked' : ''} data-codriver><span></span></label>
       <label class="field"><span class="field-name">Game sound while the voice speaks</span><input type="range" min="0.1" max="1" step="0.05" value="${this.prefs.duck}" data-duck><span class="field-unit" data-duck-text>${Math.round(this.prefs.duck * 100)}%</span></label>
-      <label class="field"><span class="field-name">Steering assist</span><select data-assist>${(['follow', 'yaw', 'off'] as const).map((a) => `<option value="${a}" ${this.prefs.assist === a ? 'selected' : ''}>${{ follow: 'Follow the road (easiest)', yaw: 'Stability only', off: 'Off (direct steering)' }[a]}</option>`).join('')}</select><span></span></label>
+      <label class="field"><span class="field-name">Steering assist</span><select data-assist>${(['yaw', 'off'] as const).map((a) => `<option value="${a}" ${this.prefs.assist === a ? 'selected' : ''}>${{ yaw: 'Stability only', off: 'Off (direct steering)' }[a]}</option>`).join('')}</select><span></span></label>
       <label class="field"><span class="field-name">Transmission</span><select data-trans><option value="auto" ${this.prefs.manual ? '' : 'selected'}>Automatic</option><option value="manual" ${this.prefs.manual ? 'selected' : ''}>Manual (E/Q, RB/LB, on-screen ▲▼)</option></select><span></span></label>
       ${isTouch ? '' : `<label class="field"><span class="field-name">Keyboard steering speed</span><input type="range" min="0.5" max="2" step="0.1" value="${this.prefs.keySteer}" data-keysteer><span class="field-unit" data-keysteer-text>${Math.round(this.prefs.keySteer * 100)}%</span></label>`}
       ${isTouch ? `<label class="field"><span class="field-name">Tilt for full lock</span><input type="range" min="15" max="90" step="5" value="${this.prefs.tiltRange}" data-tilt><span class="field-unit" data-tilt-text>${this.prefs.tiltRange}°</span></label>
@@ -818,6 +822,7 @@ class App {
     const as = el.querySelector('[data-assist]') as HTMLSelectElement | null;
     as?.addEventListener('change', () => {
       this.prefs.assist = as.value as SteerAssist;
+      this.prefs.assistSet = true;
       this.input.assisted = this.prefs.assist !== 'off';
       this.yawSteer.reset();
       savePrefs(this.prefs);
