@@ -14,6 +14,11 @@ export class KeyboardInput {
   private s = 0;
   /** 切れる速さの倍率（設定の Keyboard steering speed） */
   sensitivity = 1;
+  /** 補助あり：出すのは「曲がり具合の求め」（steer-assist.ts が切れ角にする）。速めに立ち上げ、曲線は弱く */
+  assisted = true;
+  /** 補助ありで、いっぱいの求めまで押し続ける時間 [s]（止まっているとき、速いとき）と曲線の強さ */
+  assistRamp: [number, number] = [0.25, 0.7];
+  assistCurve = 1.5;
   onAction: (action: 'camera' | 'reset' | 'pause' | 'mirror' | 'map' | 'sound' | 'shiftUp' | 'shiftDown') => void = () => {};
 
   constructor(target: Window = window) {
@@ -56,13 +61,13 @@ export class KeyboardInput {
     const target = left === right ? 0 : right ? 1 : -1;
     // 押している間に少しずつ切れる。いっぱいまでの時間は、止まっているとき 0.3 秒、150 km/h で約 1 秒
     const v = Math.min(1, Math.abs(speed) / 42);
-    const turnRate = this.sensitivity / (0.3 + 0.75 * v);
+    const turnRate = this.assisted ? this.sensitivity / (this.assistRamp[0] + (this.assistRamp[1] - this.assistRamp[0]) * v) : this.sensitivity / (0.3 + 0.75 * v);
     // 中央へ戻すとき、反対へ切り返すときは速い（速いほど少しゆっくり戻して、車の揺れを抑える）
-    const backRate = 6 - 2.5 * v;
+    const backRate = this.assisted ? 7 : 6 - 2.5 * v;
     const returning = target === 0 || (c.steer !== 0 && Math.sign(target) !== Math.sign(c.steer));
     this.s = toward(this.s, target, returning ? backRate : turnRate, returning ? backRate : turnRate);
     // 押し始めは小さく、押し続けるといっぱいまで（短く押せば小さく直せる）
-    c.steer = Math.sign(this.s) * Math.abs(this.s) ** 1.7;
+    c.steer = Math.sign(this.s) * Math.abs(this.s) ** (this.assisted ? this.assistCurve : 1.7);
     return { steer: c.steer, throttle: c.throttle, brake: c.brake };
   }
 

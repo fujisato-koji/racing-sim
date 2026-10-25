@@ -29,6 +29,7 @@ function run(carId: string, kmh: number, script: Step[], duration: number, label
   pw.vehicles.push(v);
   const win = new FakeWindow();
   const kb = new KeyboardInput(win as unknown as Window);
+  kb.assisted = false; // 切れ角を直接動かす作りを測る
   // 目標の速さまでは真っすぐ一定速で走らせる（ここは人の操作ではない）
   for (let i = 0; i < 240 * 30 && v.speed * 3.6 < kmh; i++) { v.controls = { steer: 0, throttle: 1, brake: 0 }; pw.step(); }
   for (let i = 0; i < 240; i++) { v.controls = { steer: 0, throttle: Math.max(0, Math.min(1, (kmh / 3.6 - v.speed) * 0.4 + 0.25)), brake: 0 }; pw.step(); }

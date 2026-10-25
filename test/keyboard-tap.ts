@@ -29,6 +29,7 @@ export function tap(carId: string, kmh: number, hold: number): TapResult {
   pw.vehicles.push(v);
   const win = new FakeWindow();
   const kb = new KeyboardInput(win as unknown as Window);
+  kb.assisted = false; // 切れ角を直接動かす作りを測る
   for (let i = 0; i < 240 * 40 && v.speed * 3.6 < kmh; i++) { v.controls = { steer: 0, throttle: 1, brake: 0 }; pw.step(); }
   // 一定速にそろえる（アクセルは押したまま扱いにして、速さを保つ分だけ）
   for (let i = 0; i < 240; i++) { v.controls = { steer: 0, throttle: Math.max(0, Math.min(1, (kmh / 3.6 - v.speed) * 0.4 + 0.3)), brake: 0 }; pw.step(); }

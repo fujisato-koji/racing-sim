@@ -4,6 +4,7 @@
 // 実行: npx tsx test/tilt-wobble.ts [車 id]
 import RAPIER from '@dimforge/rapier3d-compat';
 import { TiltSteering } from '../src/game/tilt';
+import { YawSteer } from '../src/game/steer-assist';
 import { CAR_PRESETS } from '../src/sim/presets';
 import { cloneParams } from '../src/sim/params';
 import { SURFACES } from '../src/sim/surfaces';
@@ -36,6 +37,7 @@ function run(carId: string, kmh: number, mode: 'old' | 'new', driver: boolean) {
   // 目標の速さまで真っすぐ加速
   for (let i = 0; i < 240 * 30 && v.speed * 3.6 < kmh; i++) { v.controls = { steer: 0, throttle: 1, brake: 0 }; pw.step(); }
   const oldT = new OldTilt(), newT = new TiltSteering();
+  const yaw = new YawSteer();
   let sway = 0;
   const delay: number[] = [];
   let t = 0, nextSensor = 0, sumY = 0, sumR = 0, sumA = 0, n = 0, maxY = 0;
@@ -55,7 +57,9 @@ function run(carId: string, kmh: number, mode: 'old' | 'new', driver: boolean) {
       const a = Math.max(-45, Math.min(45, cmd)) + sway + 0.4 * gauss() + 0.3 * Math.sin(2 * Math.PI * 8 * t);
       if (mode === 'old') oldT.push(a); else newT.push(a, t);
     }
-    const steer = mode === 'old' ? oldT.update(pw.dt) : newT.steer(v.speed * 3.6);
+    const raw = mode === 'old' ? oldT.update(pw.dt) : newT.steer(v.speed * 3.6);
+    // ASSIST=1 のときは、新しい方を曲がり具合の補助に通す（今の作りと比べる）
+    const steer = mode === 'new' && assist ? yaw.update(pw.dt, raw, v) : raw;
     const err = kmh / 3.6 - v.speed;
     v.controls = { steer, throttle: Math.max(0, Math.min(1, err * 0.4 + 0.3)), brake: 0 };
     pw.step();
@@ -70,6 +74,7 @@ function run(carId: string, kmh: number, mode: 'old' | 'new', driver: boolean) {
 }
 
 const car = process.argv[2] ?? 'fr-sport';
+const assist = process.env.ASSIST === '1';
 for (const kmh of [60, 100, 140]) {
   for (const driver of [false, true]) {
     const label = `${kmh} km/h ${driver ? '人が修正する' : 'ぶれだけ'}`.padEnd(18);
